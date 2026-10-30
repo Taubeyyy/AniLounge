@@ -34,6 +34,7 @@ jobs:
           cat Core/Sources/AniCore/AdBlockRules.swift scripts/check-content-rules.swift > "$RUNNER_TEMP/check-content-rules.swift"
           swift "$RUNNER_TEMP/check-content-rules.swift"
       - name: Player-Lebenszyklus im Simulator prüfen
+        timeout-minutes: 12
         run: bash scripts/test-ios.sh
       - name: IPA bauen
         run: bash scripts/build-ipa.sh

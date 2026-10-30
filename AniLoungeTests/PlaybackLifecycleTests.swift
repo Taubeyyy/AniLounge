@@ -24,23 +24,28 @@ import AniCore
         model.player = player; model.nativeReady = true; model.preparing = false
         model.savedLabel = "10:00 / 24:00"
         let host = UIHostingController(rootView: AnyView(PlaybackView(model: model)))
-        let window = UIWindow(frame: UIScreen.main.bounds)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousKeyWindow = scene.windows.first(where: { $0.isKeyWindow })
+        let window = UIWindow(windowScene: scene)
+        window.frame = scene.coordinateSpace.bounds
         window.rootViewController = host; window.makeKeyAndVisible()
-        defer { model.finish(); window.isHidden = true; window.rootViewController = nil }
+        defer { model.finish(); window.isHidden = true; window.rootViewController = nil; previousKeyWindow?.makeKeyAndVisible() }
         try await Task.sleep(nanoseconds: 300_000_000)
         // Fullscreen presentation drives the same host disappearance callback as AVKit.
         let fullscreen = UIViewController()
         fullscreen.modalPresentationStyle = .fullScreen
-        await withCheckedContinuation { continuation in
-            host.present(fullscreen, animated: false) { continuation.resume() }
-        }
+        XCTAssertNotNil(host.view.window)
+        let presented = expectation(description: "Fullscreen presentation completed")
+        host.present(fullscreen, animated: false) { presented.fulfill() }
+        await fulfillment(of: [presented], timeout: 5)
+        XCTAssertTrue(host.presentedViewController === fullscreen)
         XCTAssertTrue(model.player === player)
         XCTAssertTrue(player.currentItem === item, "Fullscreen must not clear the AVPlayerItem")
         XCTAssertTrue(model.nativeReady)
         XCTAssertEqual(model.savedLabel, "10:00 / 24:00")
-        await withCheckedContinuation { continuation in
-            fullscreen.dismiss(animated: false) { continuation.resume() }
-        }
+        let returned = expectation(description: "Returned from fullscreen")
+        fullscreen.dismiss(animated: false) { returned.fulfill() }
+        await fulfillment(of: [returned], timeout: 5)
         XCTAssertTrue(player.currentItem === item, "Returning to inline must retain the same item")
         // Removing the owning SwiftUI view must still release the player.
         host.rootView = AnyView(EmptyView())
