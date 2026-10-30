@@ -2,7 +2,7 @@
 
 Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Apps inspirierten SwiftUI-Oberfläche. Zielgerät: iPhone 13 mit iOS 16.4.1 und bereits eingerichtetem TrollStore. Das Layout unterstützt auch iPad; die Installation dort benötigt einen eigenen kompatiblen Installationsweg.
 
-## Version 0.3
+## Version 0.3.1
 
 - Eigene lila Navigationsleiste, Profilkarten, Suchfeld und Quellenkarten für iPhone und iPad.
 - Fehlende Cover werden für sichtbare Karten von der Detailseite nachgeladen. Bilder verwenden einen Speicher-/HTTP-Cache und wiederholen vorübergehend fehlgeschlagene Abrufe einmal.
@@ -13,7 +13,7 @@ Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Ap
 - Eingebetteter Webplayer als Alternative; neue Popup-Fenster und externe App-Aufrufe werden blockiert.
 - Automatisches Speichern und Fortsetzen im iOS-Player sowie bei unterstützten HTML5-Videos. Manuelle Korrektur über das Menü einer Episode.
 
-**Buildstatus:** Version 0.3 wird über GitHub Actions getestet und als Ad-hoc-signierte IPA gebaut. Der aktuelle geprüfte Stand steht in `VALIDATION.json`. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
+**Buildstatus:** Version 0.3.1 wird über GitHub Actions getestet und als Ad-hoc-signierte IPA gebaut. Der aktuelle geprüfte Stand steht in `VALIDATION.json`. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
 
 [Builds und IPA-Artefakte](https://github.com/Taubeyyy/AniLounge/actions)
 
@@ -21,7 +21,7 @@ Unter **Artifacts → AniLounge-TrollStore** herunterladen, ZIP in der Dateien-A
 
 ## Wiedergabe
 
-Ein Tipp auf eine Folge startet automatisch die pro Profil gemerkte Quelle; ohne Vorgabe werden Deutsch und VOE bevorzugt, sonst ein verfügbarer Anbieter. Über „Quelle“ änderst du Anbieter und Sprache. Die Auswahl gilt auch für folgende Episoden. Die App versucht unterstützte HTML5-Videos automatisch zu starten, ohne Buttons oder Werbelinks auf Webseiten anzuklicken. Braucht der Hoster eine zusätzliche Interaktion, wird nach zwölf Sekunden der Webplayer eingeblendet. Der isolierte WebKit-Tracker erkennt laufende HTML5-Videos, direkte MP4-/HLS-URLs und bei Blob-Playern einen eindeutig zuordenbaren, bereits geladenen HLS-Manifestlink. Dann versucht AVPlayer die Wiedergabe und setzt eine gemerkte Position fort. Erst wenn der native Player bereit ist, wird die Webwiedergabe angehalten. Apple-Player-Steuerelemente bieten Vollbild und Bild-in-Bild, soweit das Gerät dies unterstützt.
+Ein Tipp auf eine Folge startet automatisch die pro Profil gemerkte Quelle; ohne Vorgabe werden Deutsch und VOE bevorzugt, sonst ein verfügbarer Anbieter. Über „Quelle“ änderst du Anbieter und Sprache. Die Auswahl gilt auch für folgende Episoden. Die App versucht unterstützte HTML5-Videos automatisch zu starten, ohne Buttons oder Werbelinks auf Webseiten anzuklicken. Braucht der Hoster eine zusätzliche Interaktion, wird der Webplayer nach dem Laden der Anbieterseite eingeblendet, spätestens nach zwölf Sekunden ohne erkannten nativen Stream. Der isolierte WebKit-Tracker erkennt laufende HTML5-Videos, direkte MP4-/HLS-URLs und bei Blob-Playern einen eindeutig zuordenbaren, bereits geladenen HLS-Manifestlink. Dann versucht AVPlayer die Wiedergabe und setzt eine gemerkte Position fort. Erst wenn der native Player bereit ist, wird die Webwiedergabe angehalten. Apple-Player-Steuerelemente bieten Vollbild und Bild-in-Bild, soweit das Gerät dies unterstützt.
 
 Abgelaufene oder an Browser-Header gebundene Links, DRM, andere Formate und nicht erkannte Quellen können die native Wiedergabe verhindern. Dann bleibt der Webplayer verfügbar; über „Quelle“ lässt sich wechseln. „Webplayer verwenden“ beendet einen nativen Versuch. Es gibt keine Garantie, dass jeder Hoster funktioniert. Popup-Blocking entfernt keine in die Seite oder ins Video eingebettete Werbung. Kurze Clips unter 90 Sekunden werden vom Webtracker ignoriert, um typische Werbeclips nicht als Folgenfortschritt zu speichern; längere Werbung kann nicht zuverlässig erkannt werden.
 
@@ -83,3 +83,11 @@ Der eigene AniLounge-Quellcode steht unter der MIT-Lizenz, siehe `LICENSE`. Abh�
 - Apple WebKit: https://developer.apple.com/documentation/webkit/wkwebview
 - Apple AVURLAsset-Cookies: https://developer.apple.com/documentation/avfoundation/avurlassethttpcookieskey
 
+
+## Werbeblocker (0.3.1)
+
+Der Webplayer blockiert standardmäßig zehn bekannte Werbedomains einschließlich ihrer Subdomains über WebKit-Inhaltsregeln. Die kleine mitgelieferte Liste wird mit der App aktualisiert; sie ist keine vollständige EasyList-/uBlock-Liste. Neue oder wechselnde Werbedomains und in den Stream eingebettete Werbung können durchkommen. Die bestehenden Popup-Sperren bleiben zusätzlich aktiv. Der Filter gilt nur im App-Webplayer, nicht systemweit.
+
+Unter **Quelle → Werbeblocker** lässt er sich ausschalten. Im Webplayer lädt **Ohne Blocker neu laden** dieselbe Quelle erneut. Bei einem Filterfehler zeigt die App ausdrücklich an, dass der Blocker nicht geladen wurde. Video-CDNs und Playerbibliotheken werden nicht pauschal gesperrt.
+
+Der Start zeigt nun Verbindungsphasen und vergangene Ladezeit. Bei 0:00 startet AVPlayer ohne zusätzlichen Seek; beim Fortsetzen beträgt die erlaubte Abweichung höchstens eine Sekunde. Eine schnellere Verbindung zum Anbieter oder eine bestimmte Startdauer ist damit nicht garantiert.

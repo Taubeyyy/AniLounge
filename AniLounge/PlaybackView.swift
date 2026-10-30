@@ -36,6 +36,10 @@ struct PlaybackRequest: Identifiable {
     private var timeObserver: Any?
     private var timeout: Task<Void, Never>?
     private var restoring = false
+    private var loadTask: Task<Void, Never>?
+    @Published var startedAt = Date()
+    @Published var adBlockEnabled = UserDefaults.standard.object(forKey: "web.adblock.enabled") as? Bool ?? true
+    @Published var blockerStatus = "Werbeblocker wird vorbereitet"
     private var revealTask: Task<Void, Never>?
     @Published var preparing = true
     private var preferenceKey: String { "playback.preference." + request.profileID.uuidString }
@@ -63,7 +67,7 @@ struct PlaybackRequest: Identifiable {
     }
     func loadHosts() async {
         guard hosts.isEmpty, !loadingHosts else { return }
-        loadingHosts = true; error = nil
+        loadingHosts = true; error = nil; startedAt = Date(); status = "Verfügbare Quellen werden gesucht …"
         defer { loadingHosts = false }
         do {
             hosts = try await AniClient.shared.hosts(path: request.episode.path)
@@ -91,7 +95,7 @@ struct PlaybackRequest: Identifiable {
     func select(_ host: StreamHost?, remember: Bool = true) {
         guard let url = host?.url ?? AniURL.page(request.episode.path) else { return }
         checkpoint(); stopNative()
-        selectedHost = host; choosingHost = false; error = nil; preparing = true
+        selectedHost = host; choosingHost = false; error = nil; preparing = true; startedAt = Date()
         if remember, let host { UserDefaults.standard.set(["name": host.name, "language": host.language], forKey: preferenceKey) }
         revealTask?.cancel()
         revealTask = Task { @MainActor [weak self] in
@@ -104,10 +108,30 @@ struct PlaybackRequest: Identifiable {
         attempted.removeAll(); nativeDisabled = false; savedLabel = nil
         installTracker()
         status = "Dein Video wird vorbereitet …"
-        webView.load(URLRequest(url: url))
+        loadTask?.cancel()
+        let navigationToken = token
+        loadTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let rules = self.adBlockEnabled ? await WebAdBlocker.rules() : nil
+            guard !Task.isCancelled, !self.closed, self.token == navigationToken else { return }
+            let controller = self.webView.configuration.userContentController
+            controller.removeAllContentRuleLists()
+            if self.adBlockEnabled, let rules {
+                controller.add(rules); self.blockerStatus = "Werbeblocker aktiv"
+            } else if self.adBlockEnabled {
+                self.blockerStatus = "Werbeblocker konnte nicht geladen werden"
+            } else { self.blockerStatus = "Werbeblocker aus" }
+            self.status = "Verbindung zum Anbieter wird aufgebaut …"
+            self.webView.load(URLRequest(url: url))
+        }
+    }
+    func setAdBlockEnabled(_ enabled: Bool) {
+        adBlockEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: "web.adblock.enabled")
+        if !choosingHost, let host = selectedHost { select(host, remember: false) }
     }
     func chooseHost() {
-        checkpoint(); stopNative(); token = UUID().uuidString
+        checkpoint(); stopNative(); loadTask?.cancel(); token = UUID().uuidString
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
         choosingHost = true; error = nil; preparing = false; revealTask?.cancel()
     }
@@ -188,7 +212,10 @@ struct PlaybackRequest: Identifiable {
         let position = PlaybackSource.resumePosition(saved: old?.completed == true ? 0 : (old?.seconds ?? 0),
                                                      savedDuration: old?.duration, duration: item.duration.seconds.isFinite ? item.duration.seconds : (lastDuration ?? old?.duration ?? 0))
         let attempt = generation
-        player?.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] _ in
+        // Avoid a redundant seek at startup; resume may land within one second of the saved position.
+        if position == 0 { restoring = false; player?.play(); return }
+        let tolerance = CMTime(seconds: 1, preferredTimescale: 600)
+        player?.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.generation == attempt, !self.closed else { return }
                 self.restoring = false; self.player?.play()
@@ -222,16 +249,28 @@ struct PlaybackRequest: Identifiable {
     }
     func finish() {
         guard !closed else { return }
-        checkpoint(); closed = true; revealTask?.cancel(); stopNative()
+        checkpoint(); closed = true; loadTask?.cancel(); revealTask?.cancel(); stopNative()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "aniProgress", contentWorld: world)
+    }
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        guard !choosingHost, !nativeReady, webView.url?.scheme == "https" else { return }
+        status = "Anbieter verbunden · Videolink wird gesucht …"
+    }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        guard !choosingHost, !nativeReady, webView.url?.scheme == "https" else { return }
+        if player == nil {
+            preparing = false; revealTask?.cancel()
+            status = "Anbieter geladen. Falls das Video nicht startet: Play antippen oder Quelle wechseln."
+        }
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         if (error as NSError).code != NSURLErrorCancelled { self.error = error.localizedDescription; preparing = false }
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url, ["https", "about"].contains(url.scheme ?? "") else { decisionHandler(.cancel); return }
+        if adBlockEnabled, AdBlockRules.blocks(url) { decisionHandler(.cancel); return }
         // Providers open in this view only through our explicit host selection, never from popups.
         if navigationAction.targetFrame == nil { decisionHandler(.cancel); return }
         decisionHandler(.allow)
@@ -263,6 +302,8 @@ struct PlaybackView: View {
                             Text("DEINE WIEDERGABE").font(.caption.bold()).tracking(3).foregroundColor(Theme.accent)
                             Text(model.request.anime.title).font(.largeTitle.bold())
                             Text("Quelle & Sprache").font(.title3.bold())
+                            Toggle("Werbeblocker", isOn: Binding(get: { model.adBlockEnabled }, set: { model.setAdBlockEnabled($0) })).tint(Theme.accent)
+                            Text("Blockiert bekannte Werbeserver. Bei Problemen ausschalten und eine Quelle öffnen.").font(.caption).foregroundColor(.secondary)
                             Text("Deine Auswahl wird für die nächsten Folgen gemerkt.").font(.subheadline).foregroundColor(.secondary)
                             ForEach(Array(Set(model.hosts.map(\.language))).sorted(), id: \.self) { language in
                                 VStack(alignment: .leading, spacing: 10) {
@@ -293,6 +334,9 @@ struct PlaybackView: View {
                                 Image(systemName: "play.rectangle.fill").font(.system(size: 64)).foregroundStyle(Theme.accent.gradient)
                                 Text(model.request.anime.title).font(.title2.bold()).multilineTextAlignment(.center)
                                 ProgressView().tint(Theme.accent)
+                                TimelineView(.periodic(from: model.startedAt, by: 1)) { context in
+                                    Text("Lädt seit \(max(0, Int(context.date.timeIntervalSince(model.startedAt)))) s").font(.caption.monospacedDigit()).foregroundColor(.secondary)
+                                }
                                 Text(model.selectedHost.map { "\($0.name) · \($0.language)" } ?? "Standardquelle wird gesucht …").font(.subheadline).foregroundColor(.secondary)
                                 Button("Quelle ändern") { model.chooseHost() }.buttonStyle(.bordered)
                             }.padding(30).frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.background)
@@ -302,6 +346,14 @@ struct PlaybackView: View {
                     VStack(spacing: 6) {
                         if let time = model.savedLabel { Label(time, systemImage: "checkmark.circle.fill").foregroundColor(Theme.accent).font(.caption.monospacedDigit()) }
                         Text(model.error ?? model.status).font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
+                        if !model.nativeReady {
+                            HStack {
+                                Image(systemName: model.adBlockEnabled ? "shield.lefthalf.filled" : "shield.slash")
+                                Text(model.blockerStatus).font(.caption2)
+                                Spacer()
+                                Button(model.adBlockEnabled ? "Ohne Blocker neu laden" : "Blocker aktivieren") { model.setAdBlockEnabled(!model.adBlockEnabled) }.font(.caption2)
+                            }.foregroundColor(Theme.accent)
+                        }
                         if model.player != nil { Button("Webplayer verwenden") { model.useWebPlayer() }.font(.caption) }
                     }.padding(12).frame(maxWidth: .infinity).background(Theme.panel)
                 }

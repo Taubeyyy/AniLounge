@@ -28,6 +28,10 @@ jobs:
         run: node --test scripts/playback-tracker.test.cjs
       - name: Parser und Profilspeicher testen
         run: swift test --package-path Core
+      - name: WebKit-Filter kompilieren
+        run: |
+          cat Core/Sources/AniCore/AdBlockRules.swift scripts/check-content-rules.swift > "$RUNNER_TEMP/check-content-rules.swift"
+          swift "$RUNNER_TEMP/check-content-rules.swift"
       - name: IPA bauen
         run: bash scripts/build-ipa.sh
       - name: IPA bereitstellen
@@ -42,10 +46,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Eigene lila Navigation, Profilkarten und Suche. Folgen starten mit bevorzugter Quelle; Quelle und Sprache lassen sich ändern und werden gemerkt. Fehlende Cover werden nachgeladen und Bilder zwischengespeichert.
+          Werbeblocker für bekannte Werbeserver, bei Problemen abschaltbar. Klarere Ladezustände, früher sichtbarer Webplayer und kein unnötiger Sprung auf Zeit 0 beim Start. Die Hoster-Geschwindigkeit kann weiterhin variieren.
           Native Anbieterauswahl und AVPlayer für erkannte MP4-/HLS-Links, mit Webplayer als Alternative und blockierten Popup-Fenstern.
           IPA mit TrollStore als Update installieren, um lokale Daten zu behalten.
           Profile sind lokal ohne Cloud-Synchronisation. Native Wiedergabe hängt vom Anbieter ab. Auf echtem Gerät noch nicht geprüft.
           NOTES
-          gh release create v0.3.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.3.0" --notes-file build/release-notes.md
+          gh release create v0.3.1 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.3.1" --notes-file build/release-notes.md
 
