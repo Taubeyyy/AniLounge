@@ -1,0 +1,8 @@
+.DS_Store
+build/
+.build/
+Core/.build/
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+AniLounge/Info.plist

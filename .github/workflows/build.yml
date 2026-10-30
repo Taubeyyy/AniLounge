@@ -1,0 +1,37 @@
+name: Build AniLounge IPA
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'AniLounge/**'
+      - 'Core/**'
+      - 'scripts/**'
+      - 'project.yml'
+      - '.github/workflows/build.yml'
+permissions:
+  contents: read
+concurrency:
+  group: anilounge-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode-Version
+        run: xcodebuild -version
+      - name: XcodeGen installieren
+        run: brew install xcodegen
+      - name: Parser-Tests
+        run: swift test --package-path Core
+      - name: IPA bauen
+        run: bash scripts/build-ipa.sh
+      - name: IPA bereitstellen
+        uses: actions/upload-artifact@v4
+        with:
+          name: AniLounge-TrollStore
+          path: build/AniLounge.ipa
+          if-no-files-found: error
+          retention-days: 14

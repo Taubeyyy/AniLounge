@@ -1,0 +1,54 @@
+name: AniLounge
+options:
+  bundleIdPrefix: app.anilounge
+  deploymentTarget:
+    iOS: '16.4'
+packages:
+  AniCore:
+    path: Core
+settings:
+  base:
+    SWIFT_VERSION: '5.0'
+    IPHONEOS_DEPLOYMENT_TARGET: '16.4'
+    TARGETED_DEVICE_FAMILY: '1,2'
+    MARKETING_VERSION: '0.1.0'
+    CURRENT_PROJECT_VERSION: '1'
+    CODE_SIGNING_ALLOWED: NO
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  AniLounge:
+    type: application
+    platform: iOS
+    sources: [AniLounge]
+    dependencies:
+      - package: AniCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.anilounge.personal
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: AniLounge/Info.plist
+      properties:
+        CFBundleDisplayName: AniLounge
+        LSRequiresIPhoneOS: true
+        UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+schemes:
+  AniLounge:
+    build:
+      targets:
+        AniLounge: all
+    run:
+      config: Debug
+    archive:
+      config: Release

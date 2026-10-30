@@ -1,0 +1,19 @@
+{
+  "date": "2026-10-29",
+  "method": "Python/BeautifulSoup verification of the CSS selectors against fetched live HTML. Not execution of Swift code.",
+  "catalog_unique_titles": 2506,
+  "home_promotion_links": 31,
+  "popular_links": 21,
+  "recent_episode_links": 50,
+  "one_piece_season_1_episode_rows": 61,
+  "result": "PASS",
+  "swift_syntax": "10 Swift source files passed tree-sitter syntax parsing; not type checking.",
+  "yaml": "project.yml and workflow parsed and key build settings checked.",
+  "bash": "bash -n passed.",
+  "not_run": [
+    "Xcode iOS build",
+    "Swift XCTest suite",
+    "TrollStore installation",
+    "Playback on device"
+  ]
+}
