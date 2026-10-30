@@ -5,11 +5,12 @@ import AniCore
     @StateObject private var library = LibraryStore()
     var body: some Scene {
         WindowGroup {
-            RootView().environmentObject(library).preferredColorScheme(.dark).tint(.red)
+            RootView().environmentObject(library).preferredColorScheme(.dark).tint(Theme.accent)
         }
     }
 }
 struct RootView: View {
+    @EnvironmentObject private var library: LibraryStore
     var body: some View {
         TabView {
             NavigationStack { HomeView() }
@@ -17,16 +18,20 @@ struct RootView: View {
             NavigationStack { SearchView() }
                 .tabItem { Label("Suche", systemImage: "magnifyingglass") }
             NavigationStack { SavedView() }
-                .tabItem { Label("Meine Liste", systemImage: "bookmark.fill") }
+                .tabItem { Label("Watchlist", systemImage: "bookmark.fill") }
+            NavigationStack { ProfileView() }
+                .tabItem { Label("Profil", systemImage: "person.crop.circle") }
         }
-        .toolbarBackground(Color.black, for: .tabBar)
+        .id(library.profile.id)
+        .alert("Speichern nicht möglich", isPresented: Binding(get: { library.storageError != nil }, set: { if !$0 { library.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(library.storageError ?? "") }
+        .toolbarBackground(Theme.background, for: .tabBar)
         .toolbarBackground(.visible, for: .tabBar)
     }
 }
 enum Theme {
-    static let background = Color(red: 0.035, green: 0.04, blue: 0.055)
-    static let panel = Color(red: 0.09, green: 0.095, blue: 0.115)
-    static let accent = Color(red: 0.94, green: 0.13, blue: 0.21)
+    static let background = Color(red: 0.055, green: 0.035, blue: 0.09)
+    static let panel = Color(red: 0.12, green: 0.075, blue: 0.18)
+    static let accent = Color(red: 0.66, green: 0.38, blue: 0.96)
 }
 struct Artwork: View {
     let url: URL?
@@ -37,7 +42,7 @@ struct Artwork: View {
                     image.resizable().scaledToFill()
                 } else {
                     ZStack {
-                        LinearGradient(colors: [Color(red: 0.2, green: 0.1, blue: 0.18), Theme.panel], startPoint: .topLeading, endPoint: .bottomTrailing)
+                        LinearGradient(colors: [Color(red: 0.28, green: 0.12, blue: 0.43), Theme.panel], startPoint: .topLeading, endPoint: .bottomTrailing)
                         Image(systemName: "sparkles.tv").font(.largeTitle).foregroundColor(.white.opacity(0.2))
                     }
                 }

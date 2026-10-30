@@ -24,7 +24,9 @@ jobs:
         run: xcodebuild -version
       - name: XcodeGen installieren
         run: brew install xcodegen
-      - name: Parser-Tests
+      - name: Player-Skript testen
+        run: node --test scripts/playback-tracker.test.cjs
+      - name: Parser und Profilspeicher testen
         run: swift test --package-path Core
       - name: IPA bauen
         run: bash scripts/build-ipa.sh

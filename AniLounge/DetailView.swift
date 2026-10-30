@@ -1,13 +1,10 @@
 import SwiftUI
-import SafariServices
+
 import AniCore
 
-private struct BrowserPage: Identifiable {
-    let url: URL
-    var id: String { url.absoluteString }
-}
 struct DetailView: View {
     let anime: Anime
+    var resumeEpisode: Episode? = nil
     @EnvironmentObject private var library: LibraryStore
     @State private var detail: AnimeDetail?
     @State private var episodes: [Episode] = []
@@ -15,7 +12,8 @@ struct DetailView: View {
     @State private var error: String?
     @State private var episodeError: String?
     @State private var loadingEpisodes = false
-    @State private var browser: BrowserPage?
+    @State private var playback: PlaybackRequest?
+    @State private var editingProgress: Episode?
     @State private var expanded = false
     private var currentAnime: Anime { detail?.anime ?? anime }
     var body: some View {
@@ -41,20 +39,30 @@ struct DetailView: View {
         }
         .task { if detail == nil { await loadDetail() } }
         .task(id: selectedSeason) { if !selectedSeason.isEmpty { await loadSeason(selectedSeason) } }
-        .sheet(item: $browser) { page in SafariView(url: page.url).ignoresSafeArea() }
+        .sheet(item: $playback) { request in PlaybackView(request: request, library: library) }
+        .sheet(item: $editingProgress) { episode in ProgressEditor(anime: currentAnime, episode: episode, profileID: library.profile.id).environmentObject(library) }
     }
     private func detailContent(_ detail: AnimeDetail) -> some View {
         VStack(alignment: .leading, spacing: 22) {
             Text(([detail.year] + detail.genres.prefix(3)).filter { !$0.isEmpty }.joined(separator: "  ·  "))
                 .font(.caption).foregroundColor(.secondary)
+            if let progress = library.active.latest(for: currentAnime), !progress.completed, progress.seconds > 0 {
+                Button { open(progress.episode) } label: {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Weiterschauen · Folge \(progress.episode.number)", systemImage: "play.fill").font(.headline)
+                        Text("Gemerkte Position: \(progress.timeLabel)").font(.caption)
+                        if let fraction = progress.fraction { ProgressView(value: fraction).tint(.white) }
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                }.background(Theme.accent).foregroundColor(.white).cornerRadius(12)
+            }
             HStack(spacing: 12) {
                 if let first = episodes.first, !loadingEpisodes {
                     Button { open(first) } label: {
                         Label("Folge \(first.number) öffnen", systemImage: "play.fill").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 14)
-                    }.background(.white).foregroundColor(.black).cornerRadius(8)
+                    }.background(Theme.accent).foregroundColor(.white).cornerRadius(8)
                 }
                 Button { library.toggle(currentAnime) } label: {
-                    Label(library.contains(currentAnime) ? "Gemerkt" : "Meine Liste", systemImage: library.contains(currentAnime) ? "checkmark" : "plus")
+                    Label(library.contains(currentAnime) ? "Gemerkt" : "Watchlist", systemImage: library.contains(currentAnime) ? "checkmark" : "plus")
                         .font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 14)
                 }.background(Theme.panel).foregroundColor(.white).cornerRadius(8)
             }
@@ -73,7 +81,7 @@ struct DetailView: View {
                     }.pickerStyle(.menu).tint(.white)
                 }
             }
-            Text("Wiedergabe über die Episodenseite im Browser.").font(.caption).foregroundColor(.secondary)
+            Text("Positionen werden bei unterstützten Videos automatisch gespeichert. Du kannst sie auch manuell eintragen.").font(.caption).foregroundColor(.secondary)
             if loadingEpisodes {
                 ProgressView("Folgen laden …").frame(maxWidth: .infinity).padding()
             } else if let episodeError {
@@ -90,16 +98,25 @@ struct DetailView: View {
                                     VStack(alignment: .leading, spacing: 6) {
                                         Text(episode.title).font(.subheadline.bold()).foregroundColor(.white).multilineTextAlignment(.leading)
                                         Text(episode.languages.joined(separator: " · ")).font(.caption2).foregroundColor(.secondary).lineLimit(2)
+                                        if let progress = library.progress(for: episode), !progress.completed, progress.seconds > 0 {
+                                            Text("Bis \(progress.timeLabel) geschaut").font(.caption).foregroundColor(Theme.accent)
+                                            if let fraction = progress.fraction { ProgressView(value: fraction).tint(Theme.accent) }
+                                        }
                                     }
                                     Spacer(minLength: 0)
                                     Image(systemName: "play.circle").font(.title2).foregroundColor(.white)
                                 }
                             }.buttonStyle(.plain)
-                            Button { library.toggleWatched(episode) } label: {
+                            Menu {
+                                Button { editingProgress = episode } label: { Label("Fortschritt bearbeiten", systemImage: "clock") }
+                                Button { library.toggleWatched(episode, anime: currentAnime) } label: {
+                                    Label(library.watched.contains(episode.id) ? "Als ungesehen markieren" : "Als gesehen markieren", systemImage: "checkmark.circle")
+                                }
+                            } label: {
                                 Image(systemName: library.watched.contains(episode.id) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundColor(library.watched.contains(episode.id) ? .green : .secondary)
+                                    .foregroundColor(library.watched.contains(episode.id) ? Theme.accent : .secondary)
                                     .frame(width: 36, height: 44)
-                            }.accessibilityLabel(library.watched.contains(episode.id) ? "Als ungesehen markieren" : "Als gesehen markieren")
+                            }.accessibilityLabel("Fortschritt für Folge \(episode.number)")
                         }.padding(14).background(Theme.panel).cornerRadius(10)
                     }
                 }
@@ -112,7 +129,9 @@ struct DetailView: View {
             let loaded = try await AniClient.shared.detail(path: anime.path)
             guard !Task.isCancelled else { return }
             detail = loaded; episodes = loaded.episodes
-            selectedSeason = loaded.seasons.first(where: { season in loaded.episodes.first?.path.hasPrefix(season.path + "/") == true })?.path ?? loaded.seasons.first?.path ?? ""
+            let remembered = resumeEpisode ?? library.active.latest(for: anime)?.episode ?? library.history.first(where: { $0.id == anime.id })?.episode
+            selectedSeason = loaded.seasons.first(where: { remembered?.path.hasPrefix($0.path + "/") == true })?.path
+                ?? loaded.seasons.first(where: { loaded.episodes.first?.path.hasPrefix($0.path + "/") == true })?.path ?? loaded.seasons.first?.path ?? ""
         } catch { if !Task.isCancelled { self.error = error.localizedDescription } }
     }
     private func loadSeason(_ path: String) async {
@@ -128,20 +147,8 @@ struct DetailView: View {
         }
     }
     private func open(_ episode: Episode) {
-        guard let url = AniURL.page(episode.path) else { return }
+        guard AniURL.page(episode.path) != nil else { return }
         library.opened(episode, anime: currentAnime)
-        browser = BrowserPage(url: url)
+        playback = PlaybackRequest(anime: currentAnime, episode: episode, profileID: library.profile.id)
     }
-}
-struct SafariView: UIViewControllerRepresentable {
-    let url: URL
-    func makeUIViewController(context: Context) -> SFSafariViewController {
-        let config = SFSafariViewController.Configuration()
-        config.entersReaderIfAvailable = false
-        let controller = SFSafariViewController(url: url, configuration: config)
-        controller.preferredControlTintColor = .systemRed
-        controller.dismissButtonStyle = .done
-        return controller
-    }
-    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }

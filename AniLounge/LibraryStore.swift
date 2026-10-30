@@ -1,36 +1,52 @@
 import SwiftUI
 import AniCore
 
-struct HistoryEntry: Identifiable, Codable {
-    var id: String { anime.id }
-    let anime: Anime
-    let episode: Episode
-    let openedAt: Date
-}
 @MainActor final class LibraryStore: ObservableObject {
-    @Published private(set) var favorites: [Anime]
-    @Published private(set) var history: [HistoryEntry]
-    @Published private(set) var watched: Set<String>
-    private let defaults: UserDefaults
+    @Published private(set) var snapshot: LibrarySnapshot
+    @Published var storageError: String?
+    private let persistence: LibraryPersistence
+    private var writable = true
+    var active: ProfileLibrary { snapshot.active }
+    var profile: UserProfile { active.profile }
+    var favorites: [Anime] { active.favorites }
+    var history: [HistoryEntry] { active.history }
+    var watched: Set<String> { active.watched }
+    var continueWatching: [EpisodeProgress] { active.continueWatching }
     init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        favorites = defaults.data(forKey: "favorites.v1").flatMap { try? JSONDecoder().decode([Anime].self, from: $0) } ?? []
-        history = defaults.data(forKey: "history.v1").flatMap { try? JSONDecoder().decode([HistoryEntry].self, from: $0) } ?? []
-        watched = Set(defaults.stringArray(forKey: "watched.v1") ?? [])
+        persistence = LibraryPersistence(defaults: defaults)
+        do { snapshot = try persistence.load() }
+        catch { snapshot = LibrarySnapshot(); storageError = error.localizedDescription; writable = false }
+    }
+    private func change(_ body: (inout LibrarySnapshot) throws -> Void) {
+        guard writable else { storageError = LibraryError.unreadable.localizedDescription; return }
+        do {
+            var next = snapshot
+            try body(&next)
+            try persistence.save(next)
+            snapshot = next
+        } catch { storageError = error.localizedDescription }
     }
     func contains(_ anime: Anime) -> Bool { favorites.contains { $0.id == anime.id } }
-    func toggle(_ anime: Anime) {
-        if contains(anime) { favorites.removeAll { $0.id == anime.id } } else { favorites.insert(anime, at: 0) }
-        defaults.set(try? JSONEncoder().encode(favorites), forKey: "favorites.v1")
+    func toggle(_ anime: Anime) { change { $0.update(profile.id) { $0.toggleFavorite(anime) } } }
+    func opened(_ episode: Episode, anime: Anime) { change { $0.update(profile.id) { $0.opened(episode, anime: anime) } } }
+    func toggleWatched(_ episode: Episode, anime: Anime) {
+        let value = !watched.contains(episode.id)
+        change { try $0.update(profile.id) { try $0.setWatched(value, episode: episode, anime: anime) } }
     }
-    func opened(_ episode: Episode, anime: Anime) {
-        history.removeAll { $0.id == anime.id }
-        history.insert(HistoryEntry(anime: anime, episode: episode, openedAt: Date()), at: 0)
-        history = Array(history.prefix(30))
-        defaults.set(try? JSONEncoder().encode(history), forKey: "history.v1")
+    func progress(for episode: Episode, profileID: UUID? = nil) -> EpisodeProgress? {
+        snapshot.profiles.first { $0.profile.id == (profileID ?? profile.id) }?.progress[episode.id]
     }
-    func toggleWatched(_ episode: Episode) {
-        if watched.contains(episode.id) { watched.remove(episode.id) } else { watched.insert(episode.id) }
-        defaults.set(Array(watched), forKey: "watched.v1")
+    func saveProgress(_ episode: Episode, anime: Anime, seconds: Double, duration: Double?, completed: Bool, profileID: UUID) {
+        change { try $0.update(profileID) { try $0.saveProgress(episode, anime: anime, seconds: seconds, duration: duration, completed: completed) } }
+    }
+    func addProfile(name: String, avatar: String) { change { try $0.addProfile(name: name, avatar: avatar) } }
+    func selectProfile(_ id: UUID) {
+        guard snapshot.profiles.contains(where: { $0.profile.id == id }) else { return }
+        change { $0.activeProfileID = id }
+    }
+    func editProfile(name: String, avatar: String) {
+        let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty, clean.count <= 24 else { return }
+        change { $0.update(profile.id) { $0.profile.name = clean; $0.profile.avatar = avatar } }
     }
 }

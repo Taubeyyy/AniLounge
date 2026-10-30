@@ -10,6 +10,7 @@ struct HomeView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
+                ContinueWatchingShelf()
                 if let feed {
                     if let hero = feed.featured.first ?? feed.popular.first { HeroView(anime: hero) }
                     if let error { Text(error).font(.footnote).foregroundColor(.orange).padding(.horizontal, 20) }
@@ -19,7 +20,7 @@ struct HomeView: View {
                             ScrollView(.horizontal, showsIndicators: false) {
                                 LazyHStack(spacing: 12) {
                                     ForEach(library.history) { entry in
-                                        NavigationLink { DetailView(anime: entry.anime) } label: {
+                                        NavigationLink { DetailView(anime: entry.anime, resumeEpisode: entry.episode) } label: {
                                             VStack(alignment: .leading, spacing: 6) {
                                                 Artwork(url: entry.anime.poster).frame(width: 190, height: 108).clipped().cornerRadius(8)
                                                 Text(entry.anime.title).font(.subheadline.bold()).lineLimit(1)
@@ -79,10 +80,10 @@ struct HeroView: View {
                 HStack(spacing: 12) {
                     NavigationLink { DetailView(anime: anime) } label: {
                         Label("Entdecken", systemImage: "play.fill").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 14)
-                            .background(.white).foregroundColor(.black).cornerRadius(8)
+                            .background(Theme.accent).foregroundColor(.white).cornerRadius(8)
                     }
                     Button { library.toggle(anime) } label: {
-                        Label(library.contains(anime) ? "Gemerkt" : "Meine Liste", systemImage: library.contains(anime) ? "checkmark" : "plus")
+                        Label(library.contains(anime) ? "Gemerkt" : "Watchlist", systemImage: library.contains(anime) ? "checkmark" : "plus")
                             .font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 14)
                             .background(.white.opacity(0.16)).foregroundColor(.white).cornerRadius(8)
                     }
@@ -96,19 +97,53 @@ struct InfoView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("AniLounge 0.1") {
+                Section("AniLounge 0.2") {
                     Text("Dein persönlicher Anime-Browser für iPhone und iPad.")
-                    Text("Katalog, Suche und Merkliste sind nativ. Videos öffnen sich über die Episodenseite im integrierten Browser.")
+                    Text("Katalog, Suche, Watchlist und Anbieterauswahl sind nativ. Erkannte MP4-/HLS-Links werden im iOS-Player versucht; der Webplayer bleibt als Alternative verfügbar.")
                 }
                 Section("Deine Daten") {
-                    Text("Merkliste, zuletzt geöffnete Folgen und manuell gesetzte Gesehen-Markierungen bleiben auf diesem Gerät.")
-                    Text("Keine automatische Erfassung von Wiedergabezeit oder Fortschritt. Webseiten und Videoanbieter verarbeiten ihre eigenen Verbindungsdaten.")
+                    Text("Profile, Watchlists und Wiedergabepositionen bleiben auf diesem Gerät. Es gibt keine Anmeldung oder Synchronisierung zwischen iPhone und iPad.")
+                    Text("Der iOS-Player und unterstützte HTML5-Videos speichern den Fortschritt automatisch. Webseiten und Videoanbieter verarbeiten ihre eigenen Verbindungsdaten.")
                 }
                 Section("Verbindung") {
                     Link("AniWorld öffnen", destination: AniURL.base)
                     Text("Inoffizieller Client, unabhängig von AniWorld und Netflix. Änderungen an der Website können die Datenanbindung beeinträchtigen.")
                 }
             }.navigationTitle("Über AniLounge").toolbar { Button("Fertig") { dismiss() } }
+        }
+    }
+}
+
+struct ContinueWatchingShelf: View {
+    @EnvironmentObject private var library: LibraryStore
+    @State private var playback: PlaybackRequest?
+    var body: some View {
+        if !library.continueWatching.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Weiterschauen").font(.title3.bold())
+                    Text("Für \(library.profile.name)").font(.caption).foregroundColor(Theme.accent)
+                }.padding(.horizontal, 20)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 14) {
+                        ForEach(library.continueWatching) { item in
+                            Button {
+                                library.opened(item.episode, anime: item.anime)
+                                playback = PlaybackRequest(anime: item.anime, episode: item.episode, profileID: library.profile.id)
+                            } label: {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Artwork(url: item.anime.poster).frame(width: 210, height: 118).clipped().cornerRadius(10)
+                                        .overlay(Image(systemName: "play.circle.fill").font(.largeTitle).shadow(radius: 6))
+                                    Text(item.anime.title).font(.subheadline.bold()).lineLimit(1)
+                                    Text("Folge \(item.episode.number) · \(item.timeLabel)").font(.caption).foregroundColor(.secondary)
+                                    ProgressView(value: item.fraction ?? 0).tint(Theme.accent)
+                                }.frame(width: 210).padding(12).background(Theme.panel).cornerRadius(14)
+                            }.buttonStyle(.plain).foregroundColor(.white)
+                        }
+                    }.padding(.horizontal, 20)
+                }
+            }.padding(.top, 16)
+                .sheet(item: $playback) { PlaybackView(request: $0, library: library) }
         }
     }
 }

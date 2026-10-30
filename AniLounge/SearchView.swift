@@ -71,6 +71,6 @@ struct SavedView: View {
                     }
                 }.padding(20)
             }
-        }.frame(maxWidth: .infinity).background(Theme.background).navigationTitle("Meine Liste")
+        }.frame(maxWidth: .infinity).background(Theme.background).navigationTitle("Watchlist")
     }
 }

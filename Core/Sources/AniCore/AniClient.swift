@@ -18,7 +18,7 @@ public actor AniClient {
         if let (date, html) = cache[path], Date().timeIntervalSince(date) < 300 { return html }
         guard let url = AniURL.page(path) else { throw AniError.invalidURL }
         var request = URLRequest(url: url)
-        request.setValue("AniLounge/0.1 (personal iOS client)", forHTTPHeaderField: "User-Agent")
+        request.setValue("AniLounge/0.2 (personal iOS client)", forHTTPHeaderField: "User-Agent")
         request.setValue("de-DE,de;q=0.9,en;q=0.5", forHTTPHeaderField: "Accept-Language")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw AniError.unexpectedPage }
@@ -32,5 +32,6 @@ public actor AniClient {
     public func home() async throws -> HomeFeed { try AniParser.home(await page("/")) }
     public func catalog() async throws -> [Anime] { try AniParser.catalog(await page("/animes")) }
     public func detail(path: String) async throws -> AnimeDetail { try AniParser.detail(await page(path), path: path) }
+    public func hosts(path: String) async throws -> [StreamHost] { try AniParser.hosts(await page(path)) }
     public func clearCache() { cache.removeAll() }
 }

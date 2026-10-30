@@ -29,6 +29,25 @@ public enum AniParser {
         }
         return result
     }
+    public static func hosts(_ html: String) throws -> [StreamHost] {
+        let doc = try document(html)
+        var languages: [String: String] = [:]
+        for image in try doc.select(".changeLanguageBox img[data-lang-key]") {
+            languages[try image.attr("data-lang-key")] = try image.attr("title")
+        }
+        var seen = Set<String>()
+        var hosts: [StreamHost] = []
+        for row in try doc.select(".hosterSiteVideo li[data-link-target]") {
+            guard let url = AniURL.page(try row.attr("data-link-target")),
+                  url.path.hasPrefix("/redirect/"), seen.insert(url.absoluteString).inserted else { continue }
+            let name = try row.select("h4").text()
+            guard !name.isEmpty else { continue }
+            let key = try row.attr("data-lang-key")
+            hosts.append(StreamHost(name: name, language: languages[key] ?? "Sprache \(key)", url: url))
+        }
+        guard !hosts.isEmpty else { throw AniError.missingContent }
+        return hosts
+    }
     public static func catalog(_ html: String) throws -> [Anime] {
         let doc = try document(html)
         let result = try cards(doc, selector: "a[href*='/anime/stream/']", rootOnly: true)
