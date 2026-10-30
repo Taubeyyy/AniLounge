@@ -11,7 +11,11 @@ Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Ap
 - Episoden öffnen im integrierten Safari-Browser.
 - GitHub Actions zum Testen und Erstellen einer IPA für TrollStore.
 
-**Versionsstand 0.1:** Der Quellcode wurde erstellt und statisch geprüft. Ein Xcode-Build und Tests auf einem echten iPhone sind noch ausstehend. Eine fertig gebaute IPA ist in diesem Quellcode-Paket nicht enthalten.
+**Versionsstand 0.1:** Am 30.10.2026 erfolgreich mit Xcode 16.4 auf GitHub Actions gebaut. Alle acht Parser-Tests sind bestanden. Die IPA-Struktur, Ad-hoc-Signatur und Mindestversion iOS 16.4 wurden geprüft. Installation und Wiedergabe auf einem echten Gerät sind noch nicht getestet.
+
+[Erfolgreicher Build und IPA-Artefakt](https://github.com/Taubeyyy/AniLounge/actions/runs/41078320631) · [Alle Builds](https://github.com/Taubeyyy/AniLounge/actions)
+
+Unter **Artifacts → AniLounge-TrollStore** herunterladen, das ZIP in der Dateien-App entpacken und `AniLounge.ipa` über **Teilen → TrollStore** öffnen. GitHub-Artefakte dieses Workflows werden nach 14 Tagen gelöscht; bei Bedarf einen neuen Build starten.
 
 ## Wiedergabe
 
@@ -21,7 +25,7 @@ Ein direkter AVPlayer, automatische Wiedergabepositionen, Downloads und Kontosyn
 
 ## Auf GitHub bauen – ohne eigenen Mac
 
-1. Erstelle ein **öffentliches** Repository, z. B. `AniLounge`, und initialisiere es mit einer README. Wenn ChatGPT Zugriff erhalten soll, gib genau dieses Repository für die GitHub-Verbindung frei und sende den Link. Der vorbereitete Code kann dann dort eingespielt werden.
+1. Für dieses Repository direkt bei Schritt 3 beginnen. Für einen eigenen Build kannst du das öffentliche Repository forken oder den Quellcode in ein eigenes Repository übernehmen.
 2. Alternativ lade den Inhalt dieses Projektordners in das Repository. `project.yml`, `Core`, `AniLounge`, `scripts` und `.github` müssen direkt im Hauptverzeichnis liegen. Das ZIP selbst allein löst keinen Build aus. Beim Upload auf dem iPad ist der versteckte `.github`-Ordner leicht zu übersehen; die Workflow-Datei kann über „Add file → Create new file“ unter `.github/workflows/build.yml` angelegt werden.
 3. Öffne **Actions → Build AniLounge IPA → Run workflow**. Beim Push auf `main` startet der Workflow ebenfalls, sobald die relevanten Dateien dort liegen.
 4. Warte auf einen erfolgreichen Lauf. Öffne unter **Artifacts** den Download `AniLounge-TrollStore`.

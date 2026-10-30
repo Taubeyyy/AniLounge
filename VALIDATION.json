@@ -11,9 +11,19 @@
   "yaml": "project.yml and workflow parsed and key build settings checked.",
   "bash": "bash -n passed.",
   "not_run": [
-    "Xcode iOS build",
-    "Swift XCTest suite",
     "TrollStore installation",
     "Playback on device"
-  ]
+  ],
+  "build": {
+    "date": "2026-10-30",
+    "source_commit": "a716ad3a50713b276c7069d939baab5f1618821b",
+    "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41078320631",
+    "xcode": "16.4",
+    "swift_tests": 8,
+    "test_failures": 0,
+    "ios_build": "success",
+    "ipa_validation": "passed",
+    "adhoc_codesign_verification": "passed",
+    "ipa_sha256": "c097bcbcb8395afd1629e1ca98841c2dcb5bf6694a3189b1f309572692e4a675"
+  }
 }
