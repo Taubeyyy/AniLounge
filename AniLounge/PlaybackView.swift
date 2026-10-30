@@ -293,6 +293,9 @@ struct PlaybackView: View {
     init(request: PlaybackRequest, library: LibraryStore) {
         _model = StateObject(wrappedValue: PlayerModel(request: request, store: library))
     }
+    init(model: PlayerModel) {
+        _model = StateObject(wrappedValue: model)
+    }
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -367,9 +370,24 @@ struct PlaybackView: View {
                 }
                 .task { await model.loadHosts() }
                 .onChange(of: phase) { if $0 != .active { model.checkpoint() } }
-                .onDisappear { model.finish() }
+                // Covering this view (AVKit fullscreen) is not closing the playback session.
+                .onDisappear { model.checkpoint() }
+                .background(PlaybackLifetime(model: model).frame(width: 0, height: 0))
         }.tint(Theme.accent)
     }
+}
+/// SwiftUI dismantles this owner only when the playback screen is actually removed.
+/// AVKit covering the screen must leave the player, its item and observers alive.
+@MainActor private struct PlaybackLifetime: UIViewRepresentable {
+    let model: PlayerModel
+    final class Coordinator {
+        let model: PlayerModel
+        init(_ model: PlayerModel) { self.model = model }
+    }
+    func makeCoordinator() -> Coordinator { Coordinator(model) }
+    func makeUIView(context: Context) -> UIView { UIView(frame: .zero) }
+    func updateUIView(_ view: UIView, context: Context) {}
+    static func dismantleUIView(_ view: UIView, coordinator: Coordinator) { coordinator.model.finish() }
 }
 private struct PlayerWebView: UIViewRepresentable {
     let webView: WKWebView
@@ -384,6 +402,9 @@ private struct NativePlayerView: UIViewControllerRepresentable {
         controller.allowsPictureInPicturePlayback = true
         return controller
     }
-    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) { controller.player = player }
+    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        // Progress updates must not reattach the same player during an AVKit transition.
+        if controller.player !== player { controller.player = player }
+    }
 }
 

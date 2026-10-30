@@ -6,6 +6,7 @@ on:
     paths:
       - 'AniLounge/**'
       - 'Core/**'
+      - 'AniLoungeTests/**'
       - 'scripts/**'
       - 'project.yml'
       - '.github/workflows/build.yml'
@@ -32,6 +33,8 @@ jobs:
         run: |
           cat Core/Sources/AniCore/AdBlockRules.swift scripts/check-content-rules.swift > "$RUNNER_TEMP/check-content-rules.swift"
           swift "$RUNNER_TEMP/check-content-rules.swift"
+      - name: Player-Lebenszyklus im Simulator prüfen
+        run: bash scripts/test-ios.sh
       - name: IPA bauen
         run: bash scripts/build-ipa.sh
       - name: IPA bereitstellen
@@ -46,10 +49,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Werbeblocker für bekannte Werbeserver, bei Problemen abschaltbar. Klarere Ladezustände, früher sichtbarer Webplayer und kein unnötiger Sprung auf Zeit 0 beim Start. Die Hoster-Geschwindigkeit kann weiterhin variieren.
-          Native Anbieterauswahl und AVPlayer für erkannte MP4-/HLS-Links, mit Webplayer als Alternative und blockierten Popup-Fenstern.
+          Behebt das Leeren des Players beim Wechsel in Vollbild: vorübergehendes Verschwinden speichert nur den Fortschritt. Erst Schließen oder tatsächliches Entfernen der Wiedergabeansicht beendet die Sitzung.
+          Enthält einen iOS-Simulator-Regressionstest für Überdecken, Zurückkehren und Schließen der Playeransicht.
           IPA mit TrollStore als Update installieren, um lokale Daten zu behalten.
           Profile sind lokal ohne Cloud-Synchronisation. Native Wiedergabe hängt vom Anbieter ab. Auf echtem Gerät noch nicht geprüft.
           NOTES
-          gh release create v0.3.1 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.3.1" --notes-file build/release-notes.md
+          gh release create v0.3.2 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.3.2" --notes-file build/release-notes.md
 

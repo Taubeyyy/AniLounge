@@ -11,8 +11,8 @@ settings:
     SWIFT_VERSION: '5.0'
     IPHONEOS_DEPLOYMENT_TARGET: '16.4'
     TARGETED_DEVICE_FAMILY: '1,2'
-    MARKETING_VERSION: '0.3.1'
-    CURRENT_PROJECT_VERSION: '4'
+    MARKETING_VERSION: '0.3.2'
+    CURRENT_PROJECT_VERSION: '5'
     CODE_SIGNING_ALLOWED: NO
     ENABLE_USER_SCRIPT_SANDBOXING: YES
 targets:
@@ -47,11 +47,24 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+  AniLoungeTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [AniLoungeTests]
+    dependencies:
+      - target: AniLounge
+      - package: AniCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   AniLounge:
     build:
       targets:
         AniLounge: all
+    test:
+      config: Debug
+      targets: [AniLoungeTests]
     run:
       config: Debug
     archive:
