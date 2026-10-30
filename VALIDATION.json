@@ -1,17 +1,18 @@
 {
-  "version": "0.3.0",
+  "version": "0.3.1",
   "date": "2026-10-30",
-  "source_commit": "c0c6910888acac9c51b3a3c3d361c3f0d3d519e3",
-  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41128266389",
-  "swift_tests": 19,
+  "source_commit": "73b21fa1b4747a6ed9a312b795b1e29222a776bc",
+  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41133019418",
+  "swift_tests": 22,
   "javascript_tests": 8,
   "test_failures": 0,
+  "webkit_rule_compilation": "passed",
   "ios_build": "success",
   "ipa_validation": "passed",
-  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.3.0",
+  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.3.1",
   "not_run": [
-    "Visual review on device",
-    "Playback-provider end-to-end tests on iPhone",
-    "TrollStore update installation"
+    "On-device provider playback and ad coverage",
+    "Measured startup latency comparison",
+    "TrollStore installation"
   ]
 }
