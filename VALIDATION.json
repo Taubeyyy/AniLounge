@@ -1,29 +1,17 @@
 {
-  "date": "2026-10-29",
-  "method": "Python/BeautifulSoup verification of the CSS selectors against fetched live HTML. Not execution of Swift code.",
-  "catalog_unique_titles": 2506,
-  "home_promotion_links": 31,
-  "popular_links": 21,
-  "recent_episode_links": 50,
-  "one_piece_season_1_episode_rows": 61,
-  "result": "PASS",
-  "swift_syntax": "10 Swift source files passed tree-sitter syntax parsing; not type checking.",
-  "yaml": "project.yml and workflow parsed and key build settings checked.",
-  "bash": "bash -n passed.",
+  "version": "0.3.0",
+  "date": "2026-10-30",
+  "source_commit": "c0c6910888acac9c51b3a3c3d361c3f0d3d519e3",
+  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41128266389",
+  "swift_tests": 19,
+  "javascript_tests": 8,
+  "test_failures": 0,
+  "ios_build": "success",
+  "ipa_validation": "passed",
+  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.3.0",
   "not_run": [
-    "TrollStore installation",
-    "Playback on device"
-  ],
-  "build": {
-    "date": "2026-10-30",
-    "source_commit": "a716ad3a50713b276c7069d939baab5f1618821b",
-    "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41078320631",
-    "xcode": "16.4",
-    "swift_tests": 8,
-    "test_failures": 0,
-    "ios_build": "success",
-    "ipa_validation": "passed",
-    "adhoc_codesign_verification": "passed",
-    "ipa_sha256": "c097bcbcb8395afd1629e1ca98841c2dcb5bf6694a3189b1f309572692e4a675"
-  }
+    "Visual review on device",
+    "Playback-provider end-to-end tests on iPhone",
+    "TrollStore update installation"
+  ]
 }
