@@ -13,7 +13,7 @@
     }
     function source(v) {
         const state = states.get(v);
-        if (!state.played || !eligible(v) || primary !== v) return;
+        if ((!state.played && !config.autoPlay) || !eligible(v) || primary !== v) return;
         let url = direct(v.currentSrc || v.src);
         // MSE may expose a blob URL. Use a manifest only if this frame loaded exactly one.
         if (!url && (v.currentSrc || '').startsWith('blob:')) {
@@ -57,10 +57,20 @@
             if (primary && primary !== v && !primary.paused && primary.duration > v.duration) return;
             primary = v; states.get(v).played = true; restore(v); report(v, true);
         });
-        ['loadedmetadata', 'canplay', 'progress'].forEach(event => v.addEventListener(event, () => restore(v)));
+        function tryStart() {
+            restore(v);
+            const state = states.get(v);
+            if (!config.autoPlay || state.autoAttempted || !eligible(v) || v.readyState < 1) return;
+            if (primary && primary !== v) return;
+            state.autoAttempted = true; primary = v; source(v);
+            const promise = v.play();
+            if (promise && promise.catch) promise.catch(() => {});
+        }
+        ['loadedmetadata', 'canplay', 'progress'].forEach(event => v.addEventListener(event, tryStart));
         v.addEventListener('timeupdate', () => { if (states.get(v).played) restore(v); report(v); });
         ['pause', 'ended'].forEach(event => v.addEventListener(event, () => report(v, true)));
         restore(v);
+        tryStart();
     }
     function scan() { document.querySelectorAll('video').forEach(attach); }
     scan();
@@ -74,3 +84,4 @@
     };
     window.aniLoungeFlush = () => { if (primary) report(primary, true); };
 })();
+

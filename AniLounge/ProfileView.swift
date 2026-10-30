@@ -6,43 +6,54 @@ struct ProfileView: View {
     @State private var editing = false
     @State private var creating = false
     var body: some View {
-        List {
-            Section {
-                VStack(spacing: 12) {
-                    Image(systemName: library.profile.avatar).font(.system(size: 42)).foregroundColor(Theme.accent)
-                        .frame(width: 90, height: 90).background(Theme.panel).clipShape(RoundedRectangle(cornerRadius: 24))
-                    Text(library.profile.name).font(.title.bold())
-                    Text("Lokales Profil · auf diesem Gerät").font(.caption).foregroundColor(.secondary)
-                    Button("Profil bearbeiten") { editing = true }.buttonStyle(.bordered)
-                }.frame(maxWidth: .infinity).padding(.vertical, 16)
-            }.listRowBackground(Color.clear)
-            Section("Deine Sammlung") {
-                Label("\(library.favorites.count) Anime auf deiner Watchlist", systemImage: "bookmark.fill")
-                Label("\(library.watched.count) Folgen gesehen", systemImage: "checkmark.circle.fill")
-                Label("\(library.continueWatching.count) Anime zum Weiterschauen", systemImage: "play.circle.fill")
-            }
-            Section("Profil wechseln") {
-                ForEach(library.snapshot.profiles, id: \.profile.id) { item in
-                    Button { library.selectProfile(item.profile.id) } label: {
-                        HStack {
-                            Image(systemName: item.profile.avatar).foregroundColor(Theme.accent).frame(width: 28)
-                            Text(item.profile.name).foregroundColor(.primary)
-                            Spacer()
-                            if item.profile.id == library.profile.id { Image(systemName: "checkmark").foregroundColor(Theme.accent) }
-                        }.padding(.vertical, 5)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 26) {
+                VStack(spacing: 14) {
+                    Image(systemName: library.profile.avatar).font(.system(size: 44)).foregroundColor(.white)
+                        .frame(width: 100, height: 100).background(Theme.accent.gradient).clipShape(RoundedRectangle(cornerRadius: 32))
+                        .shadow(color: Theme.accent.opacity(0.3), radius: 24, y: 12)
+                    Text(library.profile.name).font(.system(size: 32, weight: .bold, design: .rounded))
+                    Text("DEIN ANIME-ABEND").font(.caption2.bold()).tracking(3).foregroundColor(Theme.accent)
+                    Button("Profil gestalten") { editing = true }.font(.subheadline.bold()).padding(.horizontal, 22).padding(.vertical, 12).loungeCard()
+                }.frame(maxWidth: .infinity).padding(.vertical, 20)
+                HStack(spacing: 10) {
+                    metric(library.favorites.count, "Watchlist", "bookmark.fill")
+                    metric(library.watched.count, "Gesehen", "checkmark.circle.fill")
+                    metric(library.continueWatching.count, "Begonnen", "play.fill")
+                }
+                Text("Wer schaut heute?").font(.title2.bold())
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 14) {
+                    ForEach(library.snapshot.profiles, id: \.profile.id) { item in
+                        Button { library.selectProfile(item.profile.id) } label: {
+                            VStack(spacing: 12) {
+                                Image(systemName: item.profile.avatar).font(.title).foregroundColor(Theme.accent)
+                                Text(item.profile.name).font(.headline).foregroundColor(.white).lineLimit(2)
+                                Text(item.profile.id == library.profile.id ? "Aktiv" : "Profil wechseln").font(.caption).foregroundColor(.secondary)
+                            }.frame(maxWidth: .infinity).padding(.vertical, 24).loungeCard()
+                                .overlay(RoundedRectangle(cornerRadius: 22).stroke(item.profile.id == library.profile.id ? Theme.accent : .clear))
+                        }.buttonStyle(LoungePressStyle())
+                    }
+                    if library.snapshot.profiles.count < 6 {
+                        Button { creating = true } label: {
+                            VStack(spacing: 12) { Image(systemName: "plus").font(.title); Text("Neues Profil").font(.headline) }
+                                .frame(maxWidth: .infinity, minHeight: 130).loungeCard()
+                        }.buttonStyle(LoungePressStyle())
                     }
                 }
-                if library.snapshot.profiles.count < 6 {
-                    Button { creating = true } label: { Label("Profil hinzufügen", systemImage: "plus") }
-                }
-            }
-            Section {
-                Text("Jedes Profil hat eine eigene Watchlist und einen eigenen Fortschritt. Profile sind keine passwortgeschützten Konten und werden nicht zwischen Geräten synchronisiert.")
-                Text("Die Anmeldung auf Videowebseiten gehört zum Browser und kann von allen lokalen Profilen genutzt werden.")
-            }.font(.footnote).foregroundColor(.secondary)
-        }.scrollContentBackground(.hidden).background(Theme.background).navigationTitle("Profil")
+                Label("Auf diesem Gerät", systemImage: "iphone").font(.subheadline.bold())
+                Text("Jedes Profil hat seine eigene Watchlist und seinen Fortschritt. Ohne Passwort oder Cloud-Synchronisation. Browser-Anmeldungen werden gemeinsam genutzt.")
+                    .font(.footnote).foregroundColor(.secondary).lineSpacing(4)
+            }.padding(22)
+        }.background(Theme.background).navigationTitle("Deine Lounge").navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $editing) { ProfileEditor(isNew: false).environmentObject(library) }
             .sheet(isPresented: $creating) { ProfileEditor(isNew: true).environmentObject(library) }
+    }
+    private func metric(_ count: Int, _ title: String, _ icon: String) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: icon).foregroundColor(Theme.accent)
+            Text("\(count)").font(.title2.bold())
+            Text(title).font(.caption).foregroundColor(.secondary)
+        }.frame(maxWidth: .infinity).padding(.vertical, 20).loungeCard()
     }
 }
 private struct ProfileEditor: View {
@@ -55,7 +66,8 @@ private struct ProfileEditor: View {
     private var valid: Bool { (1...24).contains(name.trimmingCharacters(in: .whitespacesAndNewlines).count) }
     var body: some View {
         NavigationStack {
-            Form {
+            ScrollView {
+              VStack(alignment: .leading, spacing: 24) {
                 Section("Name") { TextField("Dein Profilname", text: $name).textInputAutocapitalization(.words) }
                 Section("Profilbild") {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 70))], spacing: 16) {
@@ -68,7 +80,8 @@ private struct ProfileEditor: View {
                     }.padding(.vertical, 8)
                 }
                 Text("Deine Watchlist und dein Fortschritt bleiben auf diesem Gerät.").font(.footnote).foregroundColor(.secondary)
-            }.navigationTitle(isNew ? "Neues Profil" : "Profil bearbeiten")
+              }.padding(24)
+            }.background(Theme.background).navigationTitle(isNew ? "Neues Profil" : "Profil bearbeiten")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Abbrechen") { dismiss() } }
                     ToolbarItem(placement: .confirmationAction) {
@@ -133,3 +146,4 @@ struct ProgressEditor: View {
         }
     }
 }
+

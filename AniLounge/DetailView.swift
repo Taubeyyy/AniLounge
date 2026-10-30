@@ -39,7 +39,7 @@ struct DetailView: View {
         }
         .task { if detail == nil { await loadDetail() } }
         .task(id: selectedSeason) { if !selectedSeason.isEmpty { await loadSeason(selectedSeason) } }
-        .sheet(item: $playback) { request in PlaybackView(request: request, library: library) }
+        .fullScreenCover(item: $playback) { request in PlaybackView(request: request, library: library) }
         .sheet(item: $editingProgress) { episode in ProgressEditor(anime: currentAnime, episode: episode, profileID: library.profile.id).environmentObject(library) }
     }
     private func detailContent(_ detail: AnimeDetail) -> some View {
@@ -76,9 +76,16 @@ struct DetailView: View {
                 Text("Episoden").font(.title2.bold())
                 Spacer()
                 if !detail.seasons.isEmpty {
-                    Picker("Staffel", selection: $selectedSeason) {
-                        ForEach(detail.seasons) { season in Text(season.title).tag(season.path) }
-                    }.pickerStyle(.menu).tint(.white)
+                    Menu {
+                        ForEach(detail.seasons) { season in
+                            Button(season.title) { selectedSeason = season.path }
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text(detail.seasons.first(where: { $0.path == selectedSeason })?.title ?? "Staffel")
+                            Image(systemName: "chevron.down").font(.caption.bold())
+                        }.font(.subheadline.bold()).padding(.horizontal, 16).padding(.vertical, 10).loungeCard()
+                    }.tint(Theme.accent)
                 }
             }
             Text("Positionen werden bei unterstützten Videos automatisch gespeichert. Du kannst sie auch manuell eintragen.").font(.caption).foregroundColor(.secondary)
@@ -152,3 +159,4 @@ struct DetailView: View {
         playback = PlaybackRequest(anime: currentAnime, episode: episode, profileID: library.profile.id)
     }
 }
+

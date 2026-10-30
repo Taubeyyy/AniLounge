@@ -2,6 +2,15 @@ import XCTest
 @testable import AniCore
 
 final class AniParserTests: XCTestCase {
+    func testLaterDuplicateLinkSuppliesMissingCover() throws {
+        let feed = try AniParser.home("""
+        <a href="/anime/stream/test">Test</a>
+        <div class="carousel"><div class="coverListItem"><a href="/anime/stream/test"><h3>Test</h3><img data-src="/cover.jpg"></a></div></div>
+        <div class="newEpisodeList"><a href="/anime/stream/test/staffel-1/episode-1"><strong>Test</strong></a></div>
+        """)
+        XCTAssertEqual(feed.recent.first?.poster?.path, "/cover.jpg")
+    }
+
     func fixture() throws -> String {
         let url = try XCTUnwrap(Bundle.module.url(forResource: "detail", withExtension: "html", subdirectory: "Fixtures"))
         return try String(contentsOf: url, encoding: .utf8)
@@ -68,3 +77,4 @@ final class AniParserTests: XCTestCase {
         XCTAssertTrue(detail.episodes.isEmpty)
     }
 }
+

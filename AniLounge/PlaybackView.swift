@@ -36,8 +36,12 @@ struct PlaybackRequest: Identifiable {
     private var timeObserver: Any?
     private var timeout: Task<Void, Never>?
     private var restoring = false
+    private var revealTask: Task<Void, Never>?
+    @Published var preparing = true
+    private var preferenceKey: String { "playback.preference." + request.profileID.uuidString }
+
     @Published var hosts: [StreamHost] = []
-    @Published var choosingHost = true
+    @Published var choosingHost = false
     @Published var loadingHosts = false
     @Published var selectedHost: StreamHost?
     @Published var player: AVPlayer?
@@ -49,6 +53,7 @@ struct PlaybackRequest: Identifiable {
         self.request = request; self.store = store
         let configuration = WKWebViewConfiguration()
         configuration.allowsInlineMediaPlayback = true
+        configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.allowsPictureInPictureMediaPlayback = true
         configuration.websiteDataStore = .default()
         webView = WKWebView(frame: .zero, configuration: configuration)
@@ -60,13 +65,20 @@ struct PlaybackRequest: Identifiable {
         guard hosts.isEmpty, !loadingHosts else { return }
         loadingHosts = true; error = nil
         defer { loadingHosts = false }
-        do { hosts = try await AniClient.shared.hosts(path: request.episode.path) }
-        catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+        do {
+            hosts = try await AniClient.shared.hosts(path: request.episode.path)
+            guard !closed, !Task.isCancelled else { return }
+            let preference = UserDefaults.standard.dictionary(forKey: preferenceKey)
+            if let host = PlaybackSource.preferredHost(in: hosts, name: preference?["name"] as? String, language: preference?["language"] as? String) {
+                select(host, remember: false)
+            } else { choosingHost = true; preparing = false }
+        }
+        catch { if !Task.isCancelled { self.error = error.localizedDescription; choosingHost = true; preparing = false } }
     }
     private func installTracker() {
         token = UUID().uuidString
         let old = store.progress(for: request.episode, profileID: request.profileID)
-        let config: [String: Any] = ["token": token, "seconds": old?.completed == true ? 0 : (old?.seconds ?? 0), "duration": old?.duration ?? 0]
+        let config: [String: Any] = ["autoPlay": true, "token": token, "seconds": old?.completed == true ? 0 : (old?.seconds ?? 0), "duration": old?.duration ?? 0]
         let controller = webView.configuration.userContentController
         controller.removeAllUserScripts()
         if let scriptURL = Bundle.main.url(forResource: "PlaybackTracker", withExtension: "js"),
@@ -76,25 +88,33 @@ struct PlaybackRequest: Identifiable {
             controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: false, in: world))
         } else { error = "Automatische Videoerkennung fehlt. Fortschritt kann in der Folgenliste eingetragen werden." }
     }
-    func select(_ host: StreamHost?) {
+    func select(_ host: StreamHost?, remember: Bool = true) {
         guard let url = host?.url ?? AniURL.page(request.episode.path) else { return }
         checkpoint(); stopNative()
-        selectedHost = host; choosingHost = false; error = nil
+        selectedHost = host; choosingHost = false; error = nil; preparing = true
+        if remember, let host { UserDefaults.standard.set(["name": host.name, "language": host.language], forKey: preferenceKey) }
+        revealTask?.cancel()
+        revealTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 12_000_000_000)
+            guard !Task.isCancelled, let self, !self.closed, !self.nativeReady else { return }
+            self.preparing = false
+            self.status = "Der Anbieter braucht eventuell einen weiteren Start-Tipp. Alternativ Quelle wechseln."
+        }
         lastPosition = nil; lastDuration = nil; lastCompleted = false; mediaOrigin = nil; mediaFrame = nil
         attempted.removeAll(); nativeDisabled = false; savedLabel = nil
         installTracker()
-        status = "Starte das Video. Nutzbare Videolinks werden im iOS-Player geöffnet."
+        status = "Dein Video wird vorbereitet …"
         webView.load(URLRequest(url: url))
     }
     func chooseHost() {
         checkpoint(); stopNative(); token = UUID().uuidString
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
-        choosingHost = true; error = nil
+        choosingHost = true; error = nil; preparing = false; revealTask?.cancel()
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard !closed, !choosingHost, let body = message.body as? [String: Any], body["token"] as? String == token else { return }
         if body["kind"] as? String == "source" {
-            if let value = body["url"] as? String, let url = PlaybackSource.directURL(value) { startNative(url) }
+            if let value = body["url"] as? String, let url = PlaybackSource.directURL(value) { mediaFrame = message.frameInfo; startNative(url) }
             return
         }
         guard !nativeReady, let seconds = body["seconds"] as? Double, let duration = body["duration"] as? Double,
@@ -159,7 +179,7 @@ struct PlaybackRequest: Identifiable {
     }
     private func activateNative(_ item: AVPlayerItem) {
         guard !nativeReady, !closed else { return }
-        nativeReady = true; restoring = true; timeout?.cancel(); error = nil
+        nativeReady = true; preparing = false; revealTask?.cancel(); restoring = true; timeout?.cancel(); error = nil
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
         status = "iOS-Player · Fortschritt wird automatisch gespeichert."
@@ -184,7 +204,7 @@ struct PlaybackRequest: Identifiable {
     }
     func checkpoint() { captureNative(); persist() }
     func useWebPlayer(_ reason: String = "Webplayer aktiv. Neue Fenster bleiben blockiert.") {
-        checkpoint(); stopNative(); nativeDisabled = true
+        checkpoint(); stopNative(); nativeDisabled = true; preparing = false; revealTask?.cancel()
         webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
         // Resume the existing document at the latest native position, if its video supports seeking.
         if let position = lastPosition {
@@ -202,13 +222,13 @@ struct PlaybackRequest: Identifiable {
     }
     func finish() {
         guard !closed else { return }
-        checkpoint(); closed = true; stopNative()
+        checkpoint(); closed = true; revealTask?.cancel(); stopNative()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "aniProgress", contentWorld: world)
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        if (error as NSError).code != NSURLErrorCancelled { self.error = error.localizedDescription }
+        if (error as NSError).code != NSURLErrorCancelled { self.error = error.localizedDescription; preparing = false }
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url, ["https", "about"].contains(url.scheme ?? "") else { decisionHandler(.cancel); return }
@@ -238,31 +258,45 @@ struct PlaybackView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 if model.choosingHost {
-                    List {
-                        Section {
-                            Text(model.request.anime.title).font(.headline)
-                            Text(model.request.episode.title).font(.subheadline).foregroundColor(.secondary)
-                        }
-                        if model.loadingHosts { ProgressView("Videoanbieter laden …") }
-                        ForEach(Array(Set(model.hosts.map(\.language))).sorted(), id: \.self) { language in
-                            Section(language) {
-                                ForEach(model.hosts.filter { $0.language == language }) { host in
-                                    Button { model.select(host) } label: {
-                                        HStack { Label(host.name, systemImage: "play.circle.fill"); Spacer(); Image(systemName: "chevron.right") }
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 20) {
+                            Text("DEINE WIEDERGABE").font(.caption.bold()).tracking(3).foregroundColor(Theme.accent)
+                            Text(model.request.anime.title).font(.largeTitle.bold())
+                            Text("Quelle & Sprache").font(.title3.bold())
+                            Text("Deine Auswahl wird für die nächsten Folgen gemerkt.").font(.subheadline).foregroundColor(.secondary)
+                            ForEach(Array(Set(model.hosts.map(\.language))).sorted(), id: \.self) { language in
+                                VStack(alignment: .leading, spacing: 10) {
+                                    Text(language).font(.caption.bold()).foregroundColor(.secondary)
+                                    ForEach(model.hosts.filter { $0.language == language }) { host in
+                                        Button { model.select(host) } label: {
+                                            HStack(spacing: 16) {
+                                                Image(systemName: "play.fill").frame(width: 46, height: 46).background(Theme.accent.opacity(0.18)).clipShape(Circle())
+                                                Text(host.name).font(.headline)
+                                                Spacer()
+                                                Image(systemName: model.selectedHost?.id == host.id ? "checkmark.circle.fill" : "arrow.up.right")
+                                            }.padding(16).loungeCard()
+                                        }.buttonStyle(LoungePressStyle())
                                     }
                                 }
                             }
-                        }
-                        if let error = model.error {
-                            Section { Text(error).foregroundColor(.orange); Button("Erneut versuchen") { Task { await model.loadHosts() } } }
-                        }
-                        Section {
-                            Text("Starte das Video beim Anbieter. Sobald ein nutzbarer MP4- oder HLS-Link erkannt wird, versucht AniLounge die native Wiedergabe. Neue Fenster werden blockiert.").font(.footnote).foregroundColor(.secondary)
-                        }
-                    }.scrollContentBackground(.hidden)
+                            if let error = model.error {
+                                Text(error).foregroundColor(.orange)
+                                Button("Erneut versuchen") { Task { await model.loadHosts() } }.buttonStyle(.borderedProminent)
+                            }
+                        }.padding(24)
+                    }
                 } else {
                     ZStack {
-                        PlayerWebView(webView: model.webView).opacity(model.nativeReady ? 0 : 1)
+                        PlayerWebView(webView: model.webView).opacity(model.nativeReady || model.preparing ? 0 : 1)
+                        if model.preparing {
+                            VStack(spacing: 22) {
+                                Image(systemName: "play.rectangle.fill").font(.system(size: 64)).foregroundStyle(Theme.accent.gradient)
+                                Text(model.request.anime.title).font(.title2.bold()).multilineTextAlignment(.center)
+                                ProgressView().tint(Theme.accent)
+                                Text(model.selectedHost.map { "\($0.name) · \($0.language)" } ?? "Standardquelle wird gesucht …").font(.subheadline).foregroundColor(.secondary)
+                                Button("Quelle ändern") { model.chooseHost() }.buttonStyle(.bordered)
+                            }.padding(30).frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.background)
+                        }
                         if model.nativeReady, let player = model.player { NativePlayerView(player: player) }
                     }
                     VStack(spacing: 6) {
@@ -275,7 +309,7 @@ struct PlaybackView: View {
                 .navigationTitle("Folge \(model.request.episode.number)").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
-                        if !model.choosingHost { Button("Anbieter") { model.chooseHost() } }
+                        if !model.choosingHost { Button("Quelle") { model.chooseHost() } }
                     }
                     ToolbarItem(placement: .navigationBarTrailing) { Button("Fertig") { model.finish(); dismiss() } }
                 }
@@ -300,3 +334,4 @@ private struct NativePlayerView: UIViewControllerRepresentable {
     }
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) { controller.player = player }
 }
+

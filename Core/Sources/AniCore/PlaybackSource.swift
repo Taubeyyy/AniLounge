@@ -7,6 +7,13 @@ public struct StreamHost: Identifiable, Hashable, Sendable {
     public let url: URL
 }
 public enum PlaybackSource {
+    public static func preferredHost(in hosts: [StreamHost], name: String?, language: String?) -> StreamHost? {
+        let preferredLanguage = language ?? "Deutsch"
+        let sameLanguage = hosts.filter { $0.language == preferredLanguage }
+        let pool = sameLanguage.isEmpty ? hosts : sameLanguage
+        return pool.first { $0.name == (name ?? "VOE") } ?? pool.first
+    }
+
     /// Only hand ordinary secure media URLs to AVPlayer; blob URLs belong to WebKit.
     public static func directURL(_ value: String, mimeType: String? = nil) -> URL? {
         guard let url = URL(string: value), url.scheme == "https", let host = url.host, !host.isEmpty,
@@ -22,3 +29,4 @@ public enum PlaybackSource {
         return min(saved, max(0, duration - 1))
     }
 }
+

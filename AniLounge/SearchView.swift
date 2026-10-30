@@ -12,7 +12,12 @@ struct SearchView: View {
     }
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    Image(systemName: "magnifyingglass").foregroundColor(Theme.accent)
+                    TextField("Deinen nächsten Anime finden", text: $query).textInputAutocapitalization(.never)
+                    if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Suche löschen") }
+                }.padding(18).loungeCard().padding(.top, 12)
                 if let error { ProblemView(message: error) { Task { await load() } } }
                 else if loading { ProgressView("Katalog wird geladen …").frame(maxWidth: .infinity).padding(40) }
                 else {
@@ -24,22 +29,17 @@ struct SearchView: View {
                     ForEach(results) { anime in
                         NavigationLink { DetailView(anime: anime) } label: {
                             HStack(spacing: 14) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 10).fill(Theme.panel)
-                                    Text(String(anime.title.prefix(1))).font(.title2.weight(.black)).foregroundColor(Theme.accent)
-                                }.frame(width: 48, height: 60)
+                                AnimeArtwork(anime: anime).frame(width: 56, height: 78).clipShape(RoundedRectangle(cornerRadius: 12))
                                 Text(anime.title).font(.subheadline.weight(.semibold)).foregroundColor(.white).multilineTextAlignment(.leading)
                                 Spacer(minLength: 6)
                                 Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
-                            }.padding(.vertical, 10)
+                            }.padding(12).loungeCard()
                         }.buttonStyle(.plain)
-                        Divider().overlay(.white.opacity(0.04))
                     }
                 }
             }.padding(.horizontal, 20)
         }
         .background(Theme.background).navigationTitle("Suche")
-        .searchable(text: $query, prompt: "Titel oder alternativer Name")
         .autocorrectionDisabled()
         .task { if catalog.isEmpty { await load() } }
         .refreshable { await AniClient.shared.clearCache(); await load() }
@@ -60,7 +60,7 @@ struct SavedView: View {
                 VStack(spacing: 16) {
                     Image(systemName: "bookmark").font(.system(size: 44)).foregroundColor(Theme.accent)
                     Text("Platz für deine nächsten Lieblingsanime.").font(.title3.bold()).multilineTextAlignment(.center)
-                    Text("Tippe bei einem Anime auf „Meine Liste“, um ihn hier zu speichern.").foregroundColor(.secondary).multilineTextAlignment(.center)
+                    Text("Tippe bei einem Anime auf „Watchlist“, um ihn hier zu speichern.").foregroundColor(.secondary).multilineTextAlignment(.center)
                 }.padding(36).padding(.top, 80)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 16)], spacing: 22) {
@@ -74,3 +74,4 @@ struct SavedView: View {
         }.frame(maxWidth: .infinity).background(Theme.background).navigationTitle("Watchlist")
     }
 }
+

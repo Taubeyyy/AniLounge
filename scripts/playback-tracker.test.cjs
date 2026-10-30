@@ -7,18 +7,19 @@ const template = fs.readFileSync(path.join(__dirname, '../AniLounge/Resources/Pl
 function video(duration = 1440, src = 'https://cdn.example/episode.mp4?token=secret') {
     const handlers = {};
     return {
+        playCalls: 0, play() { this.playCalls++; return Promise.resolve(); },
         duration, currentTime: 0, currentSrc: src, readyState: 1, paused: false, ended: false,
         seekable: { length: 1, start: () => 0, end: () => duration },
         addEventListener: (name, fn) => (handlers[name] ||= []).push(fn),
         emit(name) { (handlers[name] || []).forEach(fn => fn()); }
     };
 }
-function setup(videos, { seconds = 600, duration = 1440, resources = [] } = {}) {
+function setup(videos, { seconds = 600, duration = 1440, resources = [], autoPlay = false } = {}) {
     const messages = [];
     let now = 10000;
     const window = { webkit: { messageHandlers: { aniProgress: { postMessage: x => messages.push(x) } } }, addEventListener() {} };
     const document = { baseURI: 'https://host.example/watch', documentElement: {}, querySelectorAll: () => videos, addEventListener() {} };
-    vm.runInNewContext(template.replace('__ANILOUNGE_CONFIG__', JSON.stringify({ token: 'test', seconds, duration })), {
+    vm.runInNewContext(template.replace('__ANILOUNGE_CONFIG__', JSON.stringify({ token: 'test', seconds, duration, autoPlay })), {
         window, document, URL, Date: { now: () => now }, performance: { getEntriesByType: () => resources.map(name => ({ name })) },
         MutationObserver: class { observe() {} }
     });
@@ -67,4 +68,20 @@ test('native-to-web fallback can seek the same video and flushing saves latest t
     env.window.aniLoungeSeek(800); assert.equal(v.currentTime, 800);
     env.window.aniLoungeFlush(); assert.equal(env.progress().at(-1).seconds, 800);
     env.window.aniLoungeSeek(NaN); assert.equal(v.currentTime, 800);
+});
+
+
+test('one-tap mode discovers the media URL and starts eligible media once without a page click', () => {
+    const v = video(); const env = setup([v], { autoPlay: true });
+    assert.equal(v.playCalls, 1);
+    assert.equal(env.sources()[0].url, v.currentSrc);
+    assert.equal(env.progress().length, 0); // Discovery is not evidence of viewing.
+    v.emit('canplay'); v.emit('progress'); assert.equal(v.playCalls, 1);
+    v.emit('playing'); assert.equal(env.progress()[0].seconds, 600);
+});
+test('one-tap mode does not auto-start short ads or take over another playing video', () => {
+    const ad = video(30), main = video(), extra = video();
+    const env = setup([ad, main, extra], { autoPlay: true });
+    assert.equal(ad.playCalls, 0); assert.equal(main.playCalls, 1); assert.equal(extra.playCalls, 0);
+    assert.equal(env.sources().length, 1);
 });

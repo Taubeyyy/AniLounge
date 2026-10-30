@@ -42,9 +42,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Lila Oberfläche, lokale Profile, Watchlist und gespeicherter Wiedergabefortschritt.
+          Eigene lila Navigation, Profilkarten und Suche. Folgen starten mit bevorzugter Quelle; Quelle und Sprache lassen sich ändern und werden gemerkt. Fehlende Cover werden nachgeladen und Bilder zwischengespeichert.
           Native Anbieterauswahl und AVPlayer für erkannte MP4-/HLS-Links, mit Webplayer als Alternative und blockierten Popup-Fenstern.
           IPA mit TrollStore als Update installieren, um lokale Daten zu behalten.
           Profile sind lokal ohne Cloud-Synchronisation. Native Wiedergabe hängt vom Anbieter ab. Auf echtem Gerät noch nicht geprüft.
           NOTES
-          gh release create v0.2.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.2.0" --notes-file build/release-notes.md
+          gh release create v0.3.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.3.0" --notes-file build/release-notes.md
+

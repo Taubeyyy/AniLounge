@@ -6,6 +6,19 @@ import FoundationNetworking
 public actor AniClient {
     public static let shared = AniClient()
     private var cache: [String: (Date, String)] = [:]
+    private var covers: [String: URL] = [:]
+    private var pendingCovers: [String: Task<URL?, Never>] = [:]
+    public func cover(for anime: Anime) async -> URL? {
+        if let poster = anime.poster { return poster }
+        if let cached = covers[anime.id] { return cached }
+        if let pending = pendingCovers[anime.id] { return await pending.value }
+        let task = Task<URL?, Never> { try? await self.detail(path: anime.path).anime.poster }
+        pendingCovers[anime.id] = task
+        let result = await task.value
+        pendingCovers[anime.id] = nil
+        if let result { covers[anime.id] = result }
+        return result
+    }
     private let session: URLSession
     public init() {
         let config = URLSessionConfiguration.default
@@ -35,3 +48,4 @@ public actor AniClient {
     public func hosts(path: String) async throws -> [StreamHost] { try AniParser.hosts(await page(path)) }
     public func clearCache() { cache.removeAll() }
 }
+

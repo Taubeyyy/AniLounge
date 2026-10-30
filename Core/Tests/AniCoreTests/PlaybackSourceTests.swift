@@ -2,6 +2,17 @@ import XCTest
 @testable import AniCore
 
 final class PlaybackSourceTests: XCTestCase {
+    func testDefaultAndRememberedSourcesPreferLanguageAndFallBackWhenUnavailable() {
+        let de = StreamHost(name: "Other", language: "Deutsch", url: URL(string: "https://aniworld.to/redirect/1")!)
+        let voe = StreamHost(name: "VOE", language: "Deutsch", url: URL(string: "https://aniworld.to/redirect/2")!)
+        let sub = StreamHost(name: "VOE", language: "mit Untertitel Deutsch", url: URL(string: "https://aniworld.to/redirect/3")!)
+        XCTAssertEqual(PlaybackSource.preferredHost(in: [sub, de, voe], name: nil, language: nil), voe)
+        XCTAssertEqual(PlaybackSource.preferredHost(in: [sub, de, voe], name: "Other", language: "Deutsch"), de)
+        XCTAssertEqual(PlaybackSource.preferredHost(in: [sub, de], name: "Missing", language: "Deutsch"), de)
+        XCTAssertEqual(PlaybackSource.preferredHost(in: [sub], name: nil, language: nil), sub)
+        XCTAssertNil(PlaybackSource.preferredHost(in: [], name: nil, language: nil))
+    }
+
     func testNativeHostSelectionPreservesLanguageAndRejectsForeignRedirects() throws {
         let html = """
         <div class="hosterSiteVideo">
@@ -34,3 +45,4 @@ final class PlaybackSourceTests: XCTestCase {
         XCTAssertEqual(PlaybackSource.resumePosition(saved: .nan, savedDuration: nil, duration: 1440), 0)
     }
 }
+

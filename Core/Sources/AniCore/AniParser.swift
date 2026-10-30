@@ -24,7 +24,13 @@ public enum AniParser {
             if rootOnly, AniURL.page(href)?.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) != String(path.dropFirst()) { continue }
             let heading = try anchor.select("h3, strong").first()?.text() ?? ""
             let title = heading.isEmpty ? try anchor.text() : heading
-            guard !title.isEmpty, seen.insert(path).inserted else { continue }
+            guard !title.isEmpty else { continue }
+            if !seen.insert(path).inserted {
+                if let index = result.firstIndex(where: { $0.path == path }), result[index].poster == nil {
+                    result[index].poster = try image(anchor)
+                }
+                continue
+            }
             result.append(Anime(path: path, title: title, poster: try image(anchor), aliases: try anchor.attr("data-alternative-title")))
         }
         return result
@@ -113,3 +119,4 @@ public enum AniParser {
                            genres: genres, year: year, seasons: seasons, episodes: episodes, backdrop: backdrop)
     }
 }
+

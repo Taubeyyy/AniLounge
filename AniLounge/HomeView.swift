@@ -22,7 +22,7 @@ struct HomeView: View {
                                     ForEach(library.history) { entry in
                                         NavigationLink { DetailView(anime: entry.anime, resumeEpisode: entry.episode) } label: {
                                             VStack(alignment: .leading, spacing: 6) {
-                                                Artwork(url: entry.anime.poster).frame(width: 190, height: 108).clipped().cornerRadius(8)
+                                                AnimeArtwork(anime: entry.anime).frame(width: 190, height: 108).clipped().cornerRadius(8)
                                                 Text(entry.anime.title).font(.subheadline.bold()).lineLimit(1)
                                                 Text("Folge \(entry.episode.number) · erneut öffnen").font(.caption).foregroundColor(.secondary)
                                             }.frame(width: 190).foregroundColor(.white)
@@ -72,7 +72,7 @@ struct HeroView: View {
     @EnvironmentObject private var library: LibraryStore
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            Artwork(url: anime.poster)
+            AnimeArtwork(anime: anime)
             LinearGradient(colors: [.clear, Theme.background.opacity(0.35), Theme.background], startPoint: .top, endPoint: .bottom)
             VStack(alignment: .leading, spacing: 14) {
                 Text("DEIN NÄCHSTER ANIME").font(.caption2.bold()).tracking(2.5).foregroundColor(.white.opacity(0.8))
@@ -97,7 +97,7 @@ struct InfoView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("AniLounge 0.2") {
+                Section("AniLounge 0.3") {
                     Text("Dein persönlicher Anime-Browser für iPhone und iPad.")
                     Text("Katalog, Suche, Watchlist und Anbieterauswahl sind nativ. Erkannte MP4-/HLS-Links werden im iOS-Player versucht; der Webplayer bleibt als Alternative verfügbar.")
                 }
@@ -132,7 +132,7 @@ struct ContinueWatchingShelf: View {
                                 playback = PlaybackRequest(anime: item.anime, episode: item.episode, profileID: library.profile.id)
                             } label: {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    Artwork(url: item.anime.poster).frame(width: 210, height: 118).clipped().cornerRadius(10)
+                                    AnimeArtwork(anime: item.anime).frame(width: 210, height: 118).clipped().cornerRadius(10)
                                         .overlay(Image(systemName: "play.circle.fill").font(.largeTitle).shadow(radius: 6))
                                     Text(item.anime.title).font(.subheadline.bold()).lineLimit(1)
                                     Text("Folge \(item.episode.number) · \(item.timeLabel)").font(.caption).foregroundColor(.secondary)
@@ -143,7 +143,8 @@ struct ContinueWatchingShelf: View {
                     }.padding(.horizontal, 20)
                 }
             }.padding(.top, 16)
-                .sheet(item: $playback) { PlaybackView(request: $0, library: library) }
+                .fullScreenCover(item: $playback) { PlaybackView(request: $0, library: library) }
         }
     }
 }
+
