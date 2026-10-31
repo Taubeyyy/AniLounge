@@ -18,7 +18,7 @@ struct PlaybackRequest: Identifiable {
 }
 @MainActor final class PlayerModel: NSObject, ObservableObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
     let webView: WKWebView
-    let request: PlaybackRequest
+    @Published private(set) var request: PlaybackRequest
     private let store: LibraryStore
     private let world = WKContentWorld.world(name: "AniLoungeProgress")
     private var token = UUID().uuidString
@@ -30,6 +30,17 @@ struct PlaybackRequest: Identifiable {
     private var attempted = Set<URL>()
     private var generation = UUID()
     private var closed = false
+    private var triedHosts = Set<String>()
+    private var startupWatchdog: Task<Void, Never>?
+    private var nextTask: Task<Void, Never>?
+    private var countdownTask: Task<Void, Never>?
+    private var handledEnd = false
+    @Published var nextEpisode: Episode?
+    @Published var nextEpisodeError: String?
+    @Published var countdown: Int?
+    @Published var autoNext = UserDefaults.standard.bool(forKey: "playback.autoNext")
+    @Published var recoveryMessage: String?
+
     private var nativeDisabled = false
     private var itemObservation: NSKeyValueObservation?
     private var endObservation: NSObjectProtocol?
@@ -73,6 +84,7 @@ struct PlaybackRequest: Identifiable {
             hosts = try await AniClient.shared.hosts(path: request.episode.path)
             guard !closed, !Task.isCancelled else { return }
             let preference = UserDefaults.standard.dictionary(forKey: preferenceKey)
+            loadNextEpisode()
             if let host = PlaybackSource.preferredHost(in: hosts, name: preference?["name"] as? String, language: preference?["language"] as? String) {
                 select(host, remember: false)
             } else { choosingHost = true; preparing = false }
@@ -92,9 +104,12 @@ struct PlaybackRequest: Identifiable {
             controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: false, in: world))
         } else { error = "Automatische Videoerkennung fehlt. Fortschritt kann in der Folgenliste eingetragen werden." }
     }
-    func select(_ host: StreamHost?, remember: Bool = true) {
+    func select(_ host: StreamHost?, remember: Bool = true, automatic: Bool = false) {
         guard let url = host?.url ?? AniURL.page(request.episode.path) else { return }
-        checkpoint(); stopNative()
+        checkpoint(); stopNative(); startupWatchdog?.cancel(); cancelCountdown()
+        if !automatic { triedHosts.removeAll(); recoveryMessage = nil }
+        if let host { triedHosts.insert(host.id) }
+        handledEnd = false
         selectedHost = host; choosingHost = false; error = nil; preparing = true; startedAt = Date()
         if remember, let host { UserDefaults.standard.set(["name": host.name, "language": host.language], forKey: preferenceKey) }
         revealTask?.cancel()
@@ -123,6 +138,85 @@ struct PlaybackRequest: Identifiable {
             } else { self.blockerStatus = "Werbeblocker aus" }
             self.status = "Verbindung zum Anbieter wird aufgebaut …"
             self.webView.load(URLRequest(url: url))
+            self.startupWatchdog = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 35_000_000_000)
+                guard !Task.isCancelled, let self, !self.closed, self.token == navigationToken, !self.nativeReady, self.lastPosition == nil, !self.nativeDisabled else { return }
+                self.recover("Die Quelle hat innerhalb von 35 Sekunden kein Video geliefert.")
+            }
+        }
+    }
+    func recover(_ reason: String) {
+        guard !closed, !choosingHost else { return }
+        if let host = selectedHost, let replacement = PlaybackQueue.replacement(in: hosts, current: host, attempted: triedHosts) {
+            let notice = reason + " Versuche " + replacement.name + " in " + replacement.language + "."
+            select(replacement, remember: false, automatic: true)
+            recoveryMessage = notice
+        } else {
+            startupWatchdog?.cancel()
+            useWebPlayer(reason)
+            error = reason + " Keine weitere automatische Ersatzquelle in dieser Sprache verfügbar."
+        }
+    }
+    func retry() {
+        if let host = selectedHost { select(host, remember: false) }
+        else { Task { await loadHosts() } }
+    }
+    func loadNextEpisode() {
+        nextTask?.cancel(); nextEpisode = nil; nextEpisodeError = nil
+        let episode = request.episode
+        let anime = request.anime
+        nextTask = Task { @MainActor [weak self] in
+            do {
+                guard let separator = episode.path.lastIndex(of: "/") else { return }
+                let seasonPath = String(episode.path.prefix(upTo: separator))
+                let season = try await AniClient.shared.detail(path: seasonPath)
+                var next = PlaybackQueue.next(after: episode, in: season.episodes)
+                if next == nil, season.episodes.last?.id == episode.id, seasonPath.contains("/staffel-") {
+                    let detail = try await AniClient.shared.detail(path: anime.path)
+                    let seasons = detail.seasons.filter { $0.path.contains("/staffel-") }
+                    if let index = seasons.firstIndex(where: { $0.path == seasonPath }), seasons.indices.contains(index + 1) {
+                        next = try await AniClient.shared.detail(path: seasons[index + 1].path).episodes.first
+                    }
+                }
+                guard !Task.isCancelled, let self, !self.closed, self.request.episode.id == episode.id else { return }
+                self.nextEpisode = next
+                if self.handledEnd { self.scheduleNext() }
+            } catch {
+                guard !Task.isCancelled, let self, !self.closed else { return }
+                self.nextEpisodeError = "Nächste Folge konnte nicht geladen werden."
+            }
+        }
+    }
+    func playNext() {
+        guard let episode = nextEpisode, !closed else { return }
+        checkpoint(); stopNative(); loadTask?.cancel(); startupWatchdog?.cancel(); nextTask?.cancel(); cancelCountdown()
+        token = UUID().uuidString
+        webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
+        request = PlaybackRequest(anime: request.anime, episode: episode, profileID: request.profileID)
+        nextEpisode = nil; nextEpisodeError = nil; hosts = []; selectedHost = nil
+        lastPosition = nil; lastDuration = nil; lastCompleted = false; savedLabel = nil
+        handledEnd = false; choosingHost = false; preparing = true; error = nil
+        Task { await loadHosts() }
+    }
+    func setAutoNext(_ value: Bool) {
+        autoNext = value; UserDefaults.standard.set(value, forKey: "playback.autoNext")
+        if !value { cancelCountdown() }
+    }
+    func cancelCountdown() { countdownTask?.cancel(); countdownTask = nil; countdown = nil }
+    private func episodeEnded() {
+        guard !handledEnd else { return }
+        handledEnd = true; scheduleNext()
+    }
+    private func scheduleNext() {
+        guard autoNext, nextEpisode != nil, countdownTask == nil else { return }
+        countdown = 10
+        countdownTask = Task { @MainActor [weak self] in
+            for remaining in stride(from: 9, through: 0, by: -1) {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled, let self, !self.closed else { return }
+                self.countdown = remaining
+            }
+            self?.playNext()
         }
     }
     func setAdBlockEnabled(_ enabled: Bool) {
@@ -131,7 +225,7 @@ struct PlaybackRequest: Identifiable {
         if !choosingHost, let host = selectedHost { select(host, remember: false) }
     }
     func chooseHost() {
-        checkpoint(); stopNative(); loadTask?.cancel(); token = UUID().uuidString
+        checkpoint(); stopNative(); loadTask?.cancel(); startupWatchdog?.cancel(); cancelCountdown(); token = UUID().uuidString
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
         choosingHost = true; error = nil; preparing = false; revealTask?.cancel()
     }
@@ -148,8 +242,10 @@ struct PlaybackRequest: Identifiable {
         if let mediaOrigin, mediaOrigin != origin, let lastDuration, duration < lastDuration * 0.8 { return }
         mediaOrigin = origin; mediaFrame = message.frameInfo
         record(seconds: seconds, duration: duration, completed: body["ended"] as? Bool == true || seconds >= duration - 10)
+        if body["ended"] as? Bool == true { episodeEnded() }
     }
     private func record(seconds: Double, duration: Double, completed: Bool) {
+        startupWatchdog?.cancel()
         lastPosition = min(seconds, duration); lastDuration = duration; lastCompleted = completed
         persist()
         savedLabel = "\(EpisodeProgress.format(seconds)) / \(EpisodeProgress.format(duration))"
@@ -179,7 +275,7 @@ struct PlaybackRequest: Identifiable {
                 Task { @MainActor [weak self] in
                     guard let self, self.generation == attempt, self.player?.currentItem === item else { return }
                     if item.status == .readyToPlay { self.activateNative(item) }
-                    else if item.status == .failed { self.useWebPlayer("Dieser Anbieter lässt sich hier nicht nativ abspielen. Starte das Video im Webplayer oder wähle einen anderen Anbieter.") }
+                    else if item.status == .failed { self.recover("Der Videolink konnte nicht abgespielt werden.") }
                 }
             }
             self.timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 5, preferredTimescale: 600), queue: .main) { [weak self] _ in
@@ -191,18 +287,19 @@ struct PlaybackRequest: Identifiable {
             self.endObservation = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in
                     guard let self, self.generation == attempt else { return }
-                    self.captureNative(ended: true)
+                    self.captureNative(ended: true); self.episodeEnded()
                 }
             }
             self.timeout = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 20_000_000_000)
                 guard !Task.isCancelled, let self, self.generation == attempt, !self.nativeReady else { return }
-                self.useWebPlayer("Der native Player antwortet nicht. Du kannst im Webplayer weiterschauen.")
+                self.recover("Der native Player konnte die Quelle nicht rechtzeitig laden.")
             }
         }
     }
     private func activateNative(_ item: AVPlayerItem) {
         guard !nativeReady, !closed else { return }
+        startupWatchdog?.cancel()
         nativeReady = true; preparing = false; revealTask?.cancel(); restoring = true; timeout?.cancel(); error = nil
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
@@ -231,7 +328,7 @@ struct PlaybackRequest: Identifiable {
     }
     func checkpoint() { captureNative(); persist() }
     func useWebPlayer(_ reason: String = "Webplayer aktiv. Neue Fenster bleiben blockiert.") {
-        checkpoint(); stopNative(); nativeDisabled = true; preparing = false; revealTask?.cancel()
+        checkpoint(); stopNative(); startupWatchdog?.cancel(); nativeDisabled = true; preparing = false; revealTask?.cancel()
         webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
         // Resume the existing document at the latest native position, if its video supports seeking.
         if let position = lastPosition {
@@ -249,7 +346,7 @@ struct PlaybackRequest: Identifiable {
     }
     func finish() {
         guard !closed else { return }
-        checkpoint(); closed = true; loadTask?.cancel(); revealTask?.cancel(); stopNative()
+        checkpoint(); closed = true; startupWatchdog?.cancel(); nextTask?.cancel(); cancelCountdown(); loadTask?.cancel(); revealTask?.cancel(); stopNative()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "aniProgress", contentWorld: world)
@@ -266,7 +363,11 @@ struct PlaybackRequest: Identifiable {
         }
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        if (error as NSError).code != NSURLErrorCancelled { self.error = error.localizedDescription; preparing = false }
+        if (error as NSError).code != NSURLErrorCancelled {
+            if (error as NSError).code == NSURLErrorNotConnectedToInternet {
+                useWebPlayer("Keine Internetverbindung."); self.error = "Du bist offline. Verbindung prüfen und erneut versuchen."
+            } else { recover("Die Verbindung zum Anbieter ist fehlgeschlagen.") }
+        }
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url, ["https", "about"].contains(url.scheme ?? "") else { decisionHandler(.cancel); return }
@@ -305,6 +406,7 @@ struct PlaybackView: View {
                             Text("DEINE WIEDERGABE").font(.caption.bold()).tracking(3).foregroundColor(Theme.accent)
                             Text(model.request.anime.title).font(.largeTitle.bold())
                             Text("Quelle & Sprache").font(.title3.bold())
+                            Toggle("Nächste Folge automatisch", isOn: Binding(get: { model.autoNext }, set: { model.setAutoNext($0) })).tint(Theme.accent)
                             Toggle("Werbeblocker", isOn: Binding(get: { model.adBlockEnabled }, set: { model.setAdBlockEnabled($0) })).tint(Theme.accent)
                             Text("Blockiert bekannte Werbeserver. Bei Problemen ausschalten und eine Quelle öffnen.").font(.caption).foregroundColor(.secondary)
                             Text("Deine Auswahl wird für die nächsten Folgen gemerkt.").font(.subheadline).foregroundColor(.secondary)
@@ -346,7 +448,24 @@ struct PlaybackView: View {
                         }
                         if model.nativeReady, let player = model.player { NativePlayerView(player: player) }
                     }
-                    VStack(spacing: 6) {
+                    VStack(spacing: 8) {
+                        if let notice = model.recoveryMessage { Text(notice).font(.caption).foregroundColor(Theme.accent).multilineTextAlignment(.center) }
+                        if model.error != nil {
+                            HStack { Button("Erneut versuchen") { model.retry() }; Button("Quelle wechseln") { model.chooseHost() } }.font(.caption.bold())
+                        }
+                        if let next = model.nextEpisode {
+                            HStack {
+                                Button { model.playNext() } label: { Label("Nächste Folge · \(next.number)", systemImage: "forward.end.fill") }
+                                Spacer()
+                                if let seconds = model.countdown {
+                                    Text("\(seconds) s").monospacedDigit()
+                                    Button("Abbrechen") { model.cancelCountdown() }
+                                }
+                            }.font(.caption.bold()).foregroundColor(Theme.accent)
+                        }
+                        if let message = model.nextEpisodeError {
+                            Button(message + " Erneut versuchen") { model.loadNextEpisode() }.font(.caption2)
+                        }
                         if let time = model.savedLabel { Label(time, systemImage: "checkmark.circle.fill").foregroundColor(Theme.accent).font(.caption.monospacedDigit()) }
                         Text(model.error ?? model.status).font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
                         if !model.nativeReady {
@@ -369,7 +488,7 @@ struct PlaybackView: View {
                     ToolbarItem(placement: .navigationBarTrailing) { Button("Fertig") { model.finish(); dismiss() } }
                 }
                 .task { await model.loadHosts() }
-                .onChange(of: phase) { if $0 != .active { model.checkpoint() } }
+                .onChange(of: phase) { if $0 != .active { model.checkpoint(); model.cancelCountdown() } }
                 // Covering this view (AVKit fullscreen) is not closing the playback session.
                 .onDisappear { model.checkpoint() }
                 .background(PlaybackLifetime(model: model).frame(width: 0, height: 0))

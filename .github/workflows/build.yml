@@ -50,10 +50,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Behebt das Leeren des Players beim Wechsel in Vollbild: vorübergehendes Verschwinden speichert nur den Fortschritt. Erst Schließen oder tatsächliches Entfernen der Wiedergabeansicht beendet die Sitzung.
-          Enthält einen iOS-Simulator-Regressionstest für Überdecken, Zurückkehren und Schließen der Playeransicht.
+          Automatische Ersatzquellen (maximal drei, gleiche Sprache), verständliche Wiedergabefehler mit Wiederholen und Quellenwechsel.
+          Nächste Folge einschließlich Staffelwechsel sowie optionaler Autoplay-Countdown mit Abbrechen. Downloads sind in dieser Version noch nicht enthalten.
           IPA mit TrollStore als Update installieren, um lokale Daten zu behalten.
           Profile sind lokal ohne Cloud-Synchronisation. Native Wiedergabe hängt vom Anbieter ab. Auf echtem Gerät noch nicht geprüft.
           NOTES
-          gh release create v0.3.2 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.3.2" --notes-file build/release-notes.md
+          gh release create v0.4.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.4.0" --notes-file build/release-notes.md
 
