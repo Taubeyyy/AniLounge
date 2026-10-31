@@ -91,3 +91,12 @@ Der Webplayer blockiert standardmäßig zehn bekannte Werbedomains einschließli
 Unter **Quelle → Werbeblocker** lässt er sich ausschalten. Im Webplayer lädt **Ohne Blocker neu laden** dieselbe Quelle erneut. Bei einem Filterfehler zeigt die App ausdrücklich an, dass der Blocker nicht geladen wurde. Video-CDNs und Playerbibliotheken werden nicht pauschal gesperrt.
 
 Der Start zeigt nun Verbindungsphasen und vergangene Ladezeit. Bei 0:00 startet AVPlayer ohne zusätzlichen Seek; beim Fortsetzen beträgt die erlaubte Abweichung höchstens eine Sekunde. Eine schnellere Verbindung zum Anbieter oder eine bestimmte Startdauer ist damit nicht garantiert.
+
+## Wiedergabekomfort (0.4.0)
+
+- Bei einem Verbindungs-/Playerfehler oder 35 Sekunden ohne erkannten Start wird eine noch nicht versuchte Quelle derselben Sprache geöffnet. Maximal drei Anbieter pro Versuch; danach bleiben Webplayer, Wiederholen und manuelle Quellenauswahl verfügbar. Eine manuelle Auswahl beginnt einen neuen Versuch. Automatische Ersatzquellen überschreiben die gespeicherte Lieblingsquelle nicht.
+- „Nächste Folge“ verwendet die Reihenfolge der Episodenliste und berücksichtigt die nächste vorhandene Staffel. Für Filme erfolgt kein automatischer Staffelwechsel. Bei einem Fehler lässt sich die Ermittlung erneut starten.
+- Unter **Quelle → Nächste Folge automatisch** lässt sich ein Zehn-Sekunden-Countdown nach dem tatsächlichen Wiedergabeende aktivieren. Standardmäßig ist er aus. Abbrechen, Zurückspulen, Quellenwechsel und der Wechsel in den Hintergrund stoppen den Countdown.
+- Downloads sind noch nicht implementiert. Ein zukünftiger Offline-Modus benötigt eine eigene Downloadverwaltung und Hoster-Prüfungen.
+
+Version 0.3.2 hat außerdem die Wiedergabesitzung vom Sichtbarkeitswechsel getrennt: Vollbild darf den Player nicht leeren. Ein iOS-Simulator-Test prüft Überdecken, Zurückkehren und tatsächliches Entfernen der Playeransicht. Der Test ersetzt keinen echten Anbieter-Test auf iOS 16.4.1.

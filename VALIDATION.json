@@ -1,21 +1,19 @@
 {
-  "version": "0.3.2",
+  "version": "0.4.0",
   "verified_date": "2026-10-31",
-  "source_commit": "5eb969216631a8fc8084d3f6b7dbe3563f9d5a9c",
-  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41135463051",
-  "swift_core_tests": 22,
+  "source_commit": "dc30ebe1123f1c274449d1fe0cd9e3ef41c160a6",
+  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41189778209",
+  "swift_core_tests": 24,
   "javascript_tests": 8,
   "ios_simulator_tests": 1,
-  "simulator_test": "Playback screen retains the same AVPlayerItem while covered and on return; removing the owner clears it.",
-  "simulator_runtime": "iOS 18.5",
-  "device_deployment_target": "16.4",
   "test_failures": 0,
   "webkit_rule_compilation": "passed",
   "ios_build": "success",
   "ipa_validation": "passed",
-  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.3.2",
+  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.4.0",
   "not_run": [
-    "Real-provider AVKit fullscreen playback on iOS 16.4.1",
+    "Real-provider source failover and next-episode playback on iOS 16.4.1",
     "TrollStore update installation"
-  ]
+  ],
+  "downloads": "Not implemented"
 }
