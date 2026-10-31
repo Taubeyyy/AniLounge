@@ -8,6 +8,7 @@ struct PlaybackRequest: Identifiable {
     let anime: Anime
     let episode: Episode
     let profileID: UUID
+    var localURL: URL? = nil
 }
 @MainActor private final class WeakProgressHandler: NSObject, WKScriptMessageHandler {
     weak var target: PlayerModel?
@@ -42,6 +43,12 @@ struct PlaybackRequest: Identifiable {
     @Published var recoveryMessage: String?
 
     private var nativeDisabled = false
+    private var downloadCookies: [HTTPCookie] = []
+    var isOffline: Bool { request.localURL != nil }
+    func download() {
+        guard nativeReady, let asset = player?.currentItem?.asset as? AVURLAsset, !isOffline else { return }
+        DownloadStore.shared.enqueue(request: request, asset: asset, cookies: downloadCookies, source: selectedHost.map { "\($0.name) · \($0.language)" } ?? "Video")
+    }
     private var itemObservation: NSKeyValueObservation?
     private var endObservation: NSObjectProtocol?
     private var timeObserver: Any?
@@ -77,6 +84,7 @@ struct PlaybackRequest: Identifiable {
         configuration.userContentController.add(WeakProgressHandler(self), contentWorld: world, name: "aniProgress")
     }
     func loadHosts() async {
+        if let url = request.localURL { if player == nil { startNative(url) }; return }
         guard hosts.isEmpty, !loadingHosts else { return }
         loadingHosts = true; error = nil; startedAt = Date(); status = "Verfügbare Quellen werden gesucht …"
         defer { loadingHosts = false }
@@ -147,6 +155,7 @@ struct PlaybackRequest: Identifiable {
     }
     func recover(_ reason: String) {
         guard !closed, !choosingHost else { return }
+        if isOffline { stopNative(); preparing = false; error = "Die lokale Datei konnte nicht abgespielt werden. Lade die Folge erneut herunter."; return }
         if let host = selectedHost, let replacement = PlaybackQueue.replacement(in: hosts, current: host, attempted: triedHosts) {
             let notice = reason + " Versuche " + replacement.name + " in " + replacement.language + "."
             select(replacement, remember: false, automatic: true)
@@ -158,6 +167,7 @@ struct PlaybackRequest: Identifiable {
         }
     }
     func retry() {
+        if isOffline { stopNative(); attempted.removeAll(); preparing = true; Task { await loadHosts() }; return }
         if let host = selectedHost { select(host, remember: false) }
         else { Task { await loadHosts() } }
     }
@@ -268,6 +278,7 @@ struct PlaybackRequest: Identifiable {
                 let domain = $0.domain.hasPrefix(".") ? String($0.domain.dropFirst()) : $0.domain
                 return (host == domain || host.hasSuffix("." + domain)) && url.path.hasPrefix($0.path)
             }
+            self.downloadCookies = matching
             let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: matching])
             let item = AVPlayerItem(asset: asset)
             let player = AVPlayer(playerItem: item)
@@ -390,6 +401,7 @@ struct PlaybackRequest: Identifiable {
 }
 struct PlaybackView: View {
     @StateObject private var model: PlayerModel
+    @ObservedObject private var downloads = DownloadStore.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
     init(request: PlaybackRequest, library: LibraryStore) {
@@ -444,15 +456,23 @@ struct PlaybackView: View {
                                     Text("Lädt seit \(max(0, Int(context.date.timeIntervalSince(model.startedAt)))) s").font(.caption.monospacedDigit()).foregroundColor(.secondary)
                                 }
                                 Text(model.selectedHost.map { "\($0.name) · \($0.language)" } ?? "Standardquelle wird gesucht …").font(.subheadline).foregroundColor(.secondary)
-                                Button("Quelle ändern") { model.chooseHost() }.buttonStyle(.bordered)
+                                if !model.isOffline { Button("Quelle ändern") { model.chooseHost() }.buttonStyle(.bordered) }
                             }.padding(30).frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.background)
                         }
                         if model.nativeReady, let player = model.player { NativePlayerView(player: player) }
                     }
                     VStack(spacing: 8) {
+                        if model.nativeReady && !model.isOffline {
+                            if let existing = downloads.existing(model.request) {
+                                Label(existing.state == .ready ? "Offline gespeichert" : "Download läuft · siehe Downloads", systemImage: existing.state == .ready ? "checkmark.circle.fill" : "arrow.down.circle").font(.caption).foregroundColor(Theme.accent)
+                            } else {
+                                Button { model.download() } label: { Label("Herunterladen · WLAN", systemImage: "arrow.down.circle.fill") }.font(.caption.bold())
+                            }
+                        }
+                        if model.isOffline { Label("Offline-Wiedergabe", systemImage: "checkmark.icloud").font(.caption).foregroundColor(Theme.accent) }
                         if let notice = model.recoveryMessage { Text(notice).font(.caption).foregroundColor(Theme.accent).multilineTextAlignment(.center) }
                         if model.error != nil {
-                            HStack { Button("Erneut versuchen") { model.retry() }; Button("Quelle wechseln") { model.chooseHost() } }.font(.caption.bold())
+                            HStack { Button("Erneut versuchen") { model.retry() }; if !model.isOffline { Button("Quelle wechseln") { model.chooseHost() } } }.font(.caption.bold())
                         }
                         if let next = model.nextEpisode {
                             HStack {
@@ -469,7 +489,7 @@ struct PlaybackView: View {
                         }
                         if let time = model.savedLabel { Label(time, systemImage: "checkmark.circle.fill").foregroundColor(Theme.accent).font(.caption.monospacedDigit()) }
                         Text(model.error ?? model.status).font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
-                        if !model.nativeReady {
+                        if !model.nativeReady && !model.isOffline {
                             HStack {
                                 Image(systemName: model.adBlockEnabled ? "shield.lefthalf.filled" : "shield.slash")
                                 Text(model.blockerStatus).font(.caption2)
@@ -477,17 +497,18 @@ struct PlaybackView: View {
                                 Button(model.adBlockEnabled ? "Ohne Blocker neu laden" : "Blocker aktivieren") { model.setAdBlockEnabled(!model.adBlockEnabled) }.font(.caption2)
                             }.foregroundColor(Theme.accent)
                         }
-                        if model.player != nil { Button("Webplayer verwenden") { model.useWebPlayer() }.font(.caption) }
+                        if model.player != nil && !model.isOffline { Button("Webplayer verwenden") { model.useWebPlayer() }.font(.caption) }
                     }.padding(12).frame(maxWidth: .infinity).background(Theme.panel)
                 }
             }.background(Theme.background)
                 .navigationTitle("Folge \(model.request.episode.number)").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
-                        if !model.choosingHost { Button("Quelle") { model.chooseHost() } }
+                        if !model.choosingHost && !model.isOffline { Button("Quelle") { model.chooseHost() } }
                     }
                     ToolbarItem(placement: .navigationBarTrailing) { Button("Fertig") { model.finish(); dismiss() } }
                 }
+                .alert("Download", isPresented: Binding(get: { downloads.storageError != nil }, set: { if !$0 { downloads.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(downloads.storageError ?? "") }
                 .task { await model.loadHosts() }
                 .onChange(of: phase) { if $0 != .active { model.checkpoint(); model.cancelCountdown() } }
                 // Covering this view (AVKit fullscreen) is not closing the playback session.

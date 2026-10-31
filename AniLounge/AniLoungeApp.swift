@@ -2,23 +2,25 @@ import SwiftUI
 import AniCore
 
 @main struct AniLoungeApp: App {
+    @UIApplicationDelegateAdaptor(DownloadAppDelegate.self) private var appDelegate
     @StateObject private var library = LibraryStore()
     var body: some Scene {
         WindowGroup {
-            RootView().environmentObject(library).preferredColorScheme(.dark).tint(Theme.accent)
+            RootView().environmentObject(library).preferredColorScheme(.dark).tint(Theme.accent).task { DownloadStore.shared.start() }
         }
     }
 }
 struct RootView: View {
     @EnvironmentObject private var library: LibraryStore
     @State private var selected = 0
-    private let tabs = [("Entdecken", "sparkles"), ("Suche", "magnifyingglass"), ("Watchlist", "bookmark.fill"), ("Profil", "person.crop.circle.fill")]
+    private let tabs = [("Entdecken", "sparkles"), ("Suche", "magnifyingglass"), ("Watchlist", "bookmark.fill"), ("Downloads", "arrow.down.circle.fill"), ("Profil", "person.crop.circle.fill")]
     var body: some View {
         TabView(selection: $selected) {
             NavigationStack { HomeView() }.tag(0)
             NavigationStack { SearchView() }.tag(1)
             NavigationStack { SavedView() }.tag(2)
-            NavigationStack { ProfileView() }.tag(3)
+            NavigationStack { DownloadsView() }.tag(3)
+            NavigationStack { ProfileView() }.tag(4)
         }
         .toolbar(.hidden, for: .tabBar)
         .safeAreaInset(edge: .bottom, spacing: 0) {

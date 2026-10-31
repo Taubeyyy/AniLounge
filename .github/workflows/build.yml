@@ -50,10 +50,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Automatische Ersatzquellen (maximal drei, gleiche Sprache), verständliche Wiedergabefehler mit Wiederholen und Quellenwechsel.
-          Nächste Folge einschließlich Staffelwechsel sowie optionaler Autoplay-Countdown mit Abbrechen. Downloads sind in dieser Version noch nicht enthalten.
-          IPA mit TrollStore als Update installieren, um lokale Daten zu behalten.
-          Profile sind lokal ohne Cloud-Synchronisation. Native Wiedergabe hängt vom Anbieter ab. Auf echtem Gerät noch nicht geprüft.
+          Downloads für MP4/M4V und geeignete HLS-Streams: eigener Bereich pro Profil, Fortschritt, Abbrechen, Löschen und Offline-Wiedergabe im nativen Player mit gespeichertem Fortschritt.
+          Folge starten und unter dem nativen Player „Herunterladen · WLAN“ antippen. Downloads verwenden ausschließlich WLAN und werden vor der Offline-Freigabe geprüft. Unterstützte iOS-Hintergrundübertragung; erzwungenes Beenden kann Downloads abbrechen.
+          Verfügbarkeit hängt von der Quelle ab. Keine DRM-Downloads. Fehlerhafte Downloads online öffnen und über eine neue Quelle erneut starten. Noch kein Pausieren/Fortsetzen und keine Qualitätsauswahl.
+          Mit TrollStore als Update installieren, um lokale Daten zu behalten. Anbieter-Downloads und Hintergrundverhalten auf echtem iOS-16.4-Gerät noch nicht geprüft.
           NOTES
-          gh release create v0.4.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.4.0" --notes-file build/release-notes.md
+          gh release create v0.5.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.5.0" --notes-file build/release-notes.md
 

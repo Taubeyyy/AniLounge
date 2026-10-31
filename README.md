@@ -92,11 +92,12 @@ Unter **Quelle → Werbeblocker** lässt er sich ausschalten. Im Webplayer lädt
 
 Der Start zeigt nun Verbindungsphasen und vergangene Ladezeit. Bei 0:00 startet AVPlayer ohne zusätzlichen Seek; beim Fortsetzen beträgt die erlaubte Abweichung höchstens eine Sekunde. Eine schnellere Verbindung zum Anbieter oder eine bestimmte Startdauer ist damit nicht garantiert.
 
-## Wiedergabekomfort (0.4.0)
+## Downloads (0.5.0)
 
-- Bei einem Verbindungs-/Playerfehler oder 35 Sekunden ohne erkannten Start wird eine noch nicht versuchte Quelle derselben Sprache geöffnet. Maximal drei Anbieter pro Versuch; danach bleiben Webplayer, Wiederholen und manuelle Quellenauswahl verfügbar. Eine manuelle Auswahl beginnt einen neuen Versuch. Automatische Ersatzquellen überschreiben die gespeicherte Lieblingsquelle nicht.
-- „Nächste Folge“ verwendet die Reihenfolge der Episodenliste und berücksichtigt die nächste vorhandene Staffel. Für Filme erfolgt kein automatischer Staffelwechsel. Bei einem Fehler lässt sich die Ermittlung erneut starten.
-- Unter **Quelle → Nächste Folge automatisch** lässt sich ein Zehn-Sekunden-Countdown nach dem tatsächlichen Wiedergabeende aktivieren. Standardmäßig ist er aus. Abbrechen, Zurückspulen, Quellenwechsel und der Wechsel in den Hintergrund stoppen den Countdown.
-- Downloads sind noch nicht implementiert. Ein zukünftiger Offline-Modus benötigt eine eigene Downloadverwaltung und Hoster-Prüfungen.
+Eine Folge im nativen Player starten, dann **Herunterladen · WLAN** wählen. Der Bereich **Downloads** zeigt nur die Folgen des aktiven Profils und bietet Fortschritt, Abbrechen, Löschen und Offline-Wiedergabe. Der native Offline-Player benötigt weder Katalog- noch Quellenabruf und speichert den Wiedergabefortschritt im Profil.
 
-Version 0.3.2 hat außerdem die Wiedergabesitzung vom Sichtbarkeitswechsel getrennt: Vollbild darf den Player nicht leeren. Ein iOS-Simulator-Test prüft Überdecken, Zurückkehren und tatsächliches Entfernen der Playeransicht. Der Test ersetzt keinen echten Anbieter-Test auf iOS 16.4.1.
+MP4/M4V-Dateien und geeignete HLS-Streams mit `.m3u8`-URL werden unterstützt. Downloads laufen ausschließlich über WLAN mit iOS-Hintergrundsessions. Nach erzwungenem Beenden können sie abbrechen. Ein Download wird erst nach erfolgreichem Abschluss und lokaler Medienprüfung freigegeben; HLS muss zusätzlich `isPlayableOffline` erfüllen. Keine DRM-Unterstützung. Anbieter können Downloads ablehnen oder kurzlebige Links verwenden. Dann die Folge online öffnen, gegebenenfalls die Quelle wechseln und neu herunterladen. Pausieren/Fortsetzen und Qualitätsauswahl sind noch nicht enthalten.
+
+MP4-Dateien liegen in Application Support und sind vom Backup ausgeschlossen. HLS-Pakete bleiben am von iOS zugewiesenen Ort. Die Download-Liste speichert relative lokale Pfade und Profilzuordnung, keine Quell-URLs oder Cookies. Profile und Downloads synchronisieren nicht zwischen Geräten. iOS kann HLS-Pakete bei Speicherknappheit entfernen; fehlende Dateien müssen neu heruntergeladen werden.
+
+Automatisierte Download-Tests verwenden ein selbst erzeugtes zweisekündiges Testvideo: lokale Validierung, Wiederherstellung, Offline-Player ohne Quellenabruf, Abbruch/Löschen mit verspäteten Callbacks, ungültige Dateien und Pfadbegrenzung. Reale Anbieter, WLAN-Wechsel und Hintergrundübertragung auf iOS 16.4 müssen am Gerät geprüft werden.
