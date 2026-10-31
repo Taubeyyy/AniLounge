@@ -246,6 +246,7 @@ struct PlaybackRequest: Identifiable {
     }
     private func record(seconds: Double, duration: Double, completed: Bool) {
         startupWatchdog?.cancel()
+        if handledEnd && !completed { handledEnd = false; cancelCountdown() }
         lastPosition = min(seconds, duration); lastDuration = duration; lastCompleted = completed
         persist()
         savedLabel = "\(EpisodeProgress.format(seconds)) / \(EpisodeProgress.format(duration))"
