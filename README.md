@@ -2,7 +2,10 @@
 
 Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Apps inspirierten SwiftUI-Oberfläche. Zielgerät: iPhone 13 mit iOS 16.4.1 und bereits eingerichtetem TrollStore. Das Layout unterstützt auch iPad; die Installation dort benötigt einen eigenen kompatiblen Installationsweg.
 
-## Version 0.3.1
+## Version 0.5.0
+
+- Downloads pro Profil für MP4/M4V und geeignete HLS-Streams, mit Fortschritt, Abbrechen, Löschen und nativer Offline-Wiedergabe.
+- Automatische Ersatzquellen, nächste Folge und optionaler Autoplay-Countdown. Vollbild behält die Wiedergabesitzung.
 
 - Eigene lila Navigationsleiste, Profilkarten, Suchfeld und Quellenkarten für iPhone und iPad.
 - Fehlende Cover werden für sichtbare Karten von der Detailseite nachgeladen. Bilder verwenden einen Speicher-/HTTP-Cache und wiederholen vorübergehend fehlgeschlagene Abrufe einmal.
@@ -13,7 +16,9 @@ Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Ap
 - Eingebetteter Webplayer als Alternative; neue Popup-Fenster und externe App-Aufrufe werden blockiert.
 - Automatisches Speichern und Fortsetzen im iOS-Player sowie bei unterstützten HTML5-Videos. Manuelle Korrektur über das Menü einer Episode.
 
-**Buildstatus:** Version 0.3.1 wird über GitHub Actions getestet und als Ad-hoc-signierte IPA gebaut. Der aktuelle geprüfte Stand steht in `VALIDATION.json`. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
+**Buildstatus:** Version 0.5.0 wurde mit 38 erfolgreichen Tests geprüft und als Ad-hoc-signierte IPA gebaut. Der aktuelle geprüfte Stand steht in `VALIDATION.json`. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
+
+[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.5.0/AniLounge.ipa) · [Release 0.5.0](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.5.0)
 
 [Builds und IPA-Artefakte](https://github.com/Taubeyyy/AniLounge/actions)
 
@@ -91,6 +96,16 @@ Der Webplayer blockiert standardmäßig zehn bekannte Werbedomains einschließli
 Unter **Quelle → Werbeblocker** lässt er sich ausschalten. Im Webplayer lädt **Ohne Blocker neu laden** dieselbe Quelle erneut. Bei einem Filterfehler zeigt die App ausdrücklich an, dass der Blocker nicht geladen wurde. Video-CDNs und Playerbibliotheken werden nicht pauschal gesperrt.
 
 Der Start zeigt nun Verbindungsphasen und vergangene Ladezeit. Bei 0:00 startet AVPlayer ohne zusätzlichen Seek; beim Fortsetzen beträgt die erlaubte Abweichung höchstens eine Sekunde. Eine schnellere Verbindung zum Anbieter oder eine bestimmte Startdauer ist damit nicht garantiert.
+
+## Wiedergabekomfort (0.4.0)
+
+- Bei einem Verbindungs-/Playerfehler oder 35 Sekunden ohne erkannten Start wird eine noch nicht versuchte Quelle derselben Sprache geöffnet. Maximal drei Anbieter pro Versuch; danach bleiben Webplayer, Wiederholen und manuelle Quellenauswahl verfügbar. Eine manuelle Auswahl beginnt einen neuen Versuch. Automatische Ersatzquellen überschreiben die gespeicherte Lieblingsquelle nicht.
+- „Nächste Folge“ verwendet die Reihenfolge der Episodenliste und berücksichtigt die nächste vorhandene Staffel. Für Filme erfolgt kein automatischer Staffelwechsel. Bei einem Fehler lässt sich die Ermittlung erneut starten.
+- Unter **Quelle → Nächste Folge automatisch** lässt sich ein Zehn-Sekunden-Countdown nach dem tatsächlichen Wiedergabeende aktivieren. Standardmäßig ist er aus. Abbrechen, Zurückspulen, Quellenwechsel und der Wechsel in den Hintergrund stoppen den Countdown.
+- Downloads wurden mit Version 0.5.0 ergänzt, siehe unten.
+
+Version 0.3.2 hat außerdem die Wiedergabesitzung vom Sichtbarkeitswechsel getrennt: Vollbild darf den Player nicht leeren. Ein iOS-Simulator-Test prüft Überdecken, Zurückkehren und tatsächliches Entfernen der Playeransicht. Der Test ersetzt keinen echten Anbieter-Test auf iOS 16.4.1.
+
 
 ## Downloads (0.5.0)
 

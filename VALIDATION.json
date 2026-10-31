@@ -1,19 +1,41 @@
 {
-  "version": "0.4.0",
+  "version": "0.5.0",
   "verified_date": "2026-10-31",
-  "source_commit": "dc30ebe1123f1c274449d1fe0cd9e3ef41c160a6",
-  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41189778209",
+  "source_commit": "5f5be72f8e9060ff1505fadd62af7cdaf5e4f975",
+  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41190845268",
   "swift_core_tests": 24,
   "javascript_tests": 8,
-  "ios_simulator_tests": 1,
+  "ios_simulator_tests": 6,
   "test_failures": 0,
   "webkit_rule_compilation": "passed",
   "ios_build": "success",
   "ipa_validation": "passed",
-  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.4.0",
-  "not_run": [
-    "Real-provider source failover and next-episode playback on iOS 16.4.1",
-    "TrollStore update installation"
-  ],
-  "downloads": "Not implemented"
+  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.5.0",
+  "ipa_bytes": 1243895,
+  "downloads": {
+    "implemented": [
+      "MP4/M4V and eligible HLS downloads over Wi-Fi",
+      "Per-profile list, progress, cancellation, deletion",
+      "Native offline playback with profile progress",
+      "Background sessions and task restoration"
+    ],
+    "tested": [
+      "Path restrictions",
+      "Late completion after cancellation and deletion",
+      "Invalid media rejection",
+      "Local generated MP4 validation and persistence",
+      "Native local player without host discovery",
+      "Missing-file and profile isolation checks"
+    ],
+    "not_run": [
+      "Real-provider MP4 and HLS transfers",
+      "Background completion, relaunch and network loss on iOS 16.4.1",
+      "TrollStore update installation"
+    ],
+    "simulator_limitation": "Simulator logged an nsurlsessiond XPC connection error. Background networking was not validated by the local-file tests."
+  },
+  "build_warnings": [
+    "Swift 5 build succeeds; URLSession delegate actor-isolation annotations require adjustment before a Swift 6 language-mode migration. Delegate queue is explicitly main.",
+    "Existing SDK deprecation warnings"
+  ]
 }
