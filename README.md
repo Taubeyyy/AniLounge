@@ -2,6 +2,13 @@
 
 Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Apps inspirierten SwiftUI-Oberfläche. Zielgerät: iPhone 13 mit iOS 16.4.1 und bereits eingerichtetem TrollStore. Das Layout unterstützt auch iPad; die Installation dort benötigt einen eigenen kompatiblen Installationsweg.
 
+## Version 0.9.0
+
+- Eigener Player mit Gesten, Zeitleiste, Geschwindigkeit, Vollbild-Knopf, Bild-in-Bild und Sperrbildschirm-Steuerung.
+- Browsing bleibt im Hochformat; behebt den weißen Bildschirm nach dem Drehen.
+- VOE startet über die JW-Player-Schnittstelle; Master-Playlists gehen an den iOS-Player.
+- Tab „Ich“ mit Statistik, Verlauf und Einstellungen.
+
 ## Version 0.8.0
 
 - Aufgeräumte Oberfläche mit eigenen Kopfleisten, Staffel-Pills, Folgenliste mit Bildern und eigenen Bottom-Sheets.
@@ -33,7 +40,7 @@ Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Ap
 
 **Buildstatus:** Version 0.5.0 wurde mit 38 erfolgreichen Tests geprüft und als Ad-hoc-signierte IPA gebaut. Der aktuelle geprüfte Stand steht in `VALIDATION.json`. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
 
-[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.8.0/AniLounge.ipa) · [Release 0.8.0](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.8.0)
+[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.9.0/AniLounge.ipa) · [Release 0.9.0](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.0)
 
 [Builds und IPA-Artefakte](https://github.com/Taubeyyy/AniLounge/actions)
 

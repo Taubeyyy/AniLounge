@@ -14,7 +14,7 @@ struct RootView: View {
     @EnvironmentObject private var library: LibraryStore
     @ObservedObject private var playback = PlaybackCenter.shared
     @State private var selected = 0
-    private let tabs = [("Entdecken", "sparkles"), ("Suche", "magnifyingglass"), ("Watchlist", "bookmark.fill"), ("Downloads", "arrow.down.circle.fill"), ("Profil", "person.crop.circle.fill")]
+    private let tabs = [("Entdecken", "sparkles"), ("Suche", "magnifyingglass"), ("Watchlist", "bookmark.fill"), ("Downloads", "arrow.down.circle.fill"), ("Ich", "person.crop.circle.fill")]
     var body: some View {
         TabView(selection: $selected) {
             NavigationStack { HomeView() }.tag(0)

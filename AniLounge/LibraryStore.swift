@@ -29,6 +29,8 @@ import AniCore
     func contains(_ anime: Anime) -> Bool { favorites.contains { $0.id == anime.id } }
     func toggle(_ anime: Anime) { change { $0.update(profile.id) { $0.toggleFavorite(anime) } } }
     func opened(_ episode: Episode, anime: Anime) { change { $0.update(profile.id) { $0.opened(episode, anime: anime) } } }
+    func clearHistory() { change { $0.update(profile.id) { $0.clearHistory() } } }
+    func resetProgress() { change { $0.update(profile.id) { $0.resetProgress() } } }
     func setWatched(_ value: Bool, episode: Episode, anime: Anime) {
         change { try $0.update(profile.id) { try $0.setWatched(value, episode: episode, anime: anime) } }
     }

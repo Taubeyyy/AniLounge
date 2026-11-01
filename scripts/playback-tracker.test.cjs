@@ -61,8 +61,18 @@ test('a single observed HLS manifest supports blob players; ambiguous sources st
     const v = video(1440, 'blob:https://host.example/123'); const env = setup([v], { resources: [manifest, manifest] });
     v.emit('playing'); assert.equal(env.sources()[0].url, manifest);
     const other = video(1440, 'blob:https://host.example/456');
-    const ambiguous = setup([other], { resources: [manifest, 'https://cdn.example/another.m3u8'] });
+    const ambiguous = setup([other], { resources: ['https://cdn.example/a/index.m3u8', 'https://other.example/b/index.m3u8'] });
     other.emit('playing'); assert.equal(ambiguous.sources().length, 0);
+});
+test('VOE-style master plus variant playlists resolve to the master', () => {
+    const master = 'https://edge.example/engine/hls/abc/master.m3u8?t=1';
+    const variant = 'https://edge.example/engine/hls/abc/index-v1-a1.m3u8?t=1';
+    const v = video(1440, 'blob:https://host.example/1'); const env = setup([v], { resources: [master, variant] });
+    v.emit('playing'); assert.equal(env.sources()[0].url, master);
+    const unnamed = video(1440, 'blob:https://host.example/2');
+    const first = 'https://edge.example/x/playlist.m3u8', second = 'https://edge.example/x/720.m3u8';
+    const env2 = setup([unnamed], { resources: [first, second] });
+    unnamed.emit('playing'); assert.equal(env2.sources()[0].url, first);
 });
 test('native-to-web fallback can seek the same video and flushing saves latest time', () => {
     const v = video(); const env = setup([v]); v.emit('playing');

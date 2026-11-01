@@ -40,6 +40,7 @@ struct HomeView: View {
 struct HeroCarousel: View {
     let items: [Anime]
     @State private var page = 0
+    @ObservedObject private var settings = AppSettings.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
         if !items.isEmpty {
@@ -56,7 +57,7 @@ struct HeroCarousel: View {
             .frame(height: 540)
             // Gentle auto-advance like streaming apps; a manual swipe restarts the timer.
             .task(id: page) {
-                guard !reduceMotion, items.count > 1 else { return }
+                guard !reduceMotion, settings.heroAutoAdvance, items.count > 1 else { return }
                 try? await Task.sleep(nanoseconds: 8_000_000_000)
                 guard !Task.isCancelled else { return }
                 withAnimation(.easeInOut(duration: 0.6)) { page = (page + 1) % items.count }

@@ -20,11 +20,17 @@
         const state = states.get(v);
         if ((!state.played && !config.autoPlay) || !eligible(v) || primary !== v) return;
         let url = direct(v.currentSrc || v.src);
-        // MSE may expose a blob URL. Use a manifest only if this frame loaded exactly one.
+        // MSE may expose a blob URL. Use the frame's HLS manifest when it is unambiguous:
+        // one manifest, a single "master" playlist, or playlists that all live in one folder
+        // (master plus its variants, as VOE serves them) where the first loaded is the master.
         if (!url && (v.currentSrc || '').startsWith('blob:')) {
             const manifests = [...new Set(performance.getEntriesByType('resource')
                 .map(e => direct(e.name)).filter(u => u && new URL(u).pathname.toLowerCase().endsWith('.m3u8')))];
+            const folder = u => { const p = new URL(u); return p.origin + p.pathname.replace(/[^/]*$/, ''); };
+            const masters = manifests.filter(u => /master[^/]*\.m3u8$/i.test(new URL(u).pathname));
             if (manifests.length === 1) url = manifests[0];
+            else if (masters.length === 1) url = masters[0];
+            else if (manifests.length > 1 && new Set(manifests.map(folder)).size === 1) url = manifests[0];
         }
         if (!url || state.source === url) return;
         state.source = url;

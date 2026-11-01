@@ -73,6 +73,14 @@ public struct ProfileLibrary: Codable, Sendable {
         if completed { watched.insert(episode.id) } else { watched.remove(episode.id) }
         opened(episode, anime: anime, date: date)
     }
+    public mutating func clearHistory() { history.removeAll() }
+    /// Forgets progress and watched marks; watchlist and history stay.
+    public mutating func resetProgress() { progress.removeAll(); watched.removeAll() }
+    /// Time spent watching: finished episodes count fully, started ones up to their position.
+    public var watchedSeconds: Double {
+        progress.values.reduce(0) { total, item in total + (item.isFinished ? (item.duration ?? item.seconds) : item.seconds) }
+    }
+    public var finishedEpisodes: Int { Set(progress.values.filter(\.isFinished).map(\.id)).union(watched).count }
     public mutating func setWatched(_ value: Bool, episode: Episode, anime: Anime) throws {
         let old = progress[episode.id]
         try saveProgress(episode, anime: anime, seconds: value ? (old?.duration ?? old?.seconds ?? 0) : 0,

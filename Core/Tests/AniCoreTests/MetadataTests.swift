@@ -98,4 +98,20 @@ final class MetadataTests: XCTestCase {
         XCTAssertFalse(EpisodeProgress.finished(seconds: 80, duration: 85), "Clips are never auto-finished")
         XCTAssertFalse(EpisodeProgress.finished(seconds: 600, duration: nil))
     }
+    func testLibraryResetsAndWatchTime() throws {
+        var profile = ProfileLibrary()
+        let anime = Anime(path: "/anime/stream/a", title: "A")
+        let one = Episode(path: "/anime/stream/a/staffel-1/episode-1", number: "1", title: "Eins", languages: [])
+        let two = Episode(path: "/anime/stream/a/staffel-1/episode-2", number: "2", title: "Zwei", languages: [])
+        try profile.saveProgress(one, anime: anime, seconds: 1400, duration: 1440, completed: false)
+        try profile.saveProgress(two, anime: anime, seconds: 600, duration: 1440, completed: false)
+        XCTAssertEqual(profile.watchedSeconds, 1440 + 600, "Finished episodes count fully")
+        XCTAssertEqual(profile.finishedEpisodes, 1)
+        profile.toggleFavorite(anime)
+        profile.clearHistory()
+        XCTAssertTrue(profile.history.isEmpty)
+        profile.resetProgress()
+        XCTAssertTrue(profile.progress.isEmpty); XCTAssertTrue(profile.watched.isEmpty)
+        XCTAssertEqual(profile.favorites.count, 1, "The watchlist survives a progress reset")
+    }
 }

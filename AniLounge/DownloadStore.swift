@@ -24,6 +24,7 @@ struct EpisodeDownload: Codable, Identifiable {
     static let shared = DownloadStore()
     static let fileSessionID = "app.anilounge.download.files.v2"
     static let hlsSessionID = "app.anilounge.download.hls.v2"
+    static let hlsWifiSessionID = "app.anilounge.download.hls.wifi.v1"
     @Published private(set) var items: [EpisodeDownload] = []
     @Published var storageError: String?
     private let home: URL
@@ -37,6 +38,8 @@ struct EpisodeDownload: Codable, Identifiable {
     private var canSave = true
     private lazy var files = URLSession(configuration: configuration(Self.fileSessionID), delegate: self, delegateQueue: .main)
     private lazy var streams = AVAssetDownloadURLSession(configuration: configuration(Self.hlsSessionID), assetDownloadDelegate: self, delegateQueue: .main)
+    // HLS tasks cannot opt out of cellular per request, so Wi-Fi-only downloads use their own session.
+    private lazy var wifiStreams = AVAssetDownloadURLSession(configuration: configuration(Self.hlsWifiSessionID, cellular: false), assetDownloadDelegate: self, delegateQueue: .main)
 
     init(home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)) {
         self.home = home.standardizedFileURL
@@ -52,14 +55,14 @@ struct EpisodeDownload: Codable, Identifiable {
             }
         } catch { canSave = false; storageError = "Download-Speicher konnte nicht geöffnet werden. Bestehende Daten bleiben erhalten." }
     }
-    private func configuration(_ identifier: String) -> URLSessionConfiguration {
+    private func configuration(_ identifier: String, cellular: Bool = true) -> URLSessionConfiguration {
         let config = URLSessionConfiguration.background(withIdentifier: identifier)
         config.sessionSendsLaunchEvents = true
         config.isDiscretionary = false
         // Viewers expect downloads to start right away, also on mobile data.
-        config.allowsCellularAccess = true
-        config.allowsExpensiveNetworkAccess = true
-        config.allowsConstrainedNetworkAccess = true
+        config.allowsCellularAccess = cellular
+        config.allowsExpensiveNetworkAccess = cellular
+        config.allowsConstrainedNetworkAccess = cellular
         config.waitsForConnectivity = true
         return config
     }
@@ -67,7 +70,7 @@ struct EpisodeDownload: Codable, Identifiable {
         guard !started, canSave else { return }; started = true
         // Snapshot only existing entries: newly started tasks must not be marked interrupted.
         let pending = items.filter { $0.state == .downloading }.map(\.id)
-        for session in [files, streams as URLSession] {
+        for session in [files, streams as URLSession, wifiStreams as URLSession] {
             session.getAllTasks { [weak self] restored in
                 Task { @MainActor in
                     guard let self else { return }
@@ -75,7 +78,7 @@ struct EpisodeDownload: Codable, Identifiable {
                         guard let id = self.id(task), self.items.contains(where: { $0.id == id && $0.state == .downloading }) else { task.cancel(); continue }
                         self.tasks[id] = task
                     }
-                    let hls = session.configuration.identifier == Self.hlsSessionID
+                    let hls = session.configuration.identifier != Self.fileSessionID
                     for id in pending where self.items.contains(where: { $0.id == id && $0.isHLS == hls && $0.state == .downloading }) && self.tasks[id] == nil {
                         self.fail(id, "Download unterbrochen. Folge online öffnen und erneut herunterladen.")
                     }
@@ -115,7 +118,8 @@ struct EpisodeDownload: Codable, Identifiable {
         let task: URLSessionTask
         if hls {
             // Reuse the playing asset: it already carries the hoster's cookies and referer.
-            guard let download = streams.makeAssetDownloadTask(asset: asset, assetTitle: request.anime.title + " · " + request.episode.number, assetArtworkData: nil, options: nil) else {
+            let session = AppSettings.shared.wifiOnlyDownloads ? wifiStreams : streams
+            guard let download = session.makeAssetDownloadTask(asset: asset, assetTitle: request.anime.title + " · " + request.episode.number, assetArtworkData: nil, options: nil) else {
                 storageError = "Dieser HLS-Stream lässt sich nicht herunterladen."; return
             }
             task = download
@@ -123,6 +127,7 @@ struct EpisodeDownload: Codable, Identifiable {
             var urlRequest = URLRequest(url: asset.url)
             // Only cookies scoped to this asset were supplied by PlayerModel.
             urlRequest.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies).merging(headers) { current, _ in current }
+            urlRequest.allowsCellularAccess = !AppSettings.shared.wifiOnlyDownloads
             task = files.downloadTask(with: urlRequest)
         }
         task.taskDescription = entry.id.uuidString
@@ -137,6 +142,19 @@ struct EpisodeDownload: Codable, Identifiable {
         completeEventsIfPossible()
     }
     func delete(_ id: UUID) { cancel(id); items.removeAll { $0.id == id }; save() }
+    func deleteAll(profileID: UUID) {
+        for entry in items where entry.profileID == profileID { cancel(entry.id) }
+        items.removeAll { $0.profileID == profileID }; save()
+    }
+    /// Bytes on disk for one profile's finished downloads (HLS packages are folders).
+    func usedBytes(profileID: UUID) -> Int64 {
+        items.filter { $0.profileID == profileID }.compactMap(localURL(for:)).reduce(0) { total, url in
+            let files = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey])
+            var size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+            while let file = files?.nextObject() as? URL { size += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+            return total + size
+        }
+    }
     private func id(_ task: URLSessionTask) -> UUID? { task.taskDescription.flatMap(UUID.init(uuidString:)) }
     private func active(_ id: UUID) -> Bool { items.contains { $0.id == id && $0.state == .downloading } }
     private func change(_ id: UUID, persist: Bool = true, _ mutate: (inout EpisodeDownload) -> Void) {
@@ -235,6 +253,9 @@ struct EpisodeDownload: Codable, Identifiable {
 }
 
 @MainActor final class DownloadAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        OrientationLock.mask
+    }
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
         DownloadStore.shared.backgroundEvents(identifier, completion: completionHandler)
     }

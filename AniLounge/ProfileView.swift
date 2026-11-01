@@ -6,60 +6,107 @@ struct ProfileView: View {
     @State private var editing = false
     @State private var creating = false
     @State private var showingInfo = false
+    private var hoursLabel: String {
+        let minutes = Int(library.active.watchedSeconds / 60)
+        return minutes >= 60 ? "\(minutes / 60) Std \(minutes % 60) Min" : "\(minutes) Min"
+    }
     var body: some View {
-        LoungeScroll(title: "Profil", largeTitle: true) {
+        LoungeScroll(title: "Ich", largeTitle: false) {
             VStack(alignment: .leading, spacing: 26) {
-                VStack(spacing: 14) {
-                    Image(systemName: library.profile.avatar).font(.system(size: 44)).foregroundColor(.white)
-                        .frame(width: 100, height: 100).background(Theme.accent.gradient).clipShape(RoundedRectangle(cornerRadius: 32))
-                        .shadow(color: Theme.accent.opacity(0.3), radius: 24, y: 12)
-                    Text(library.profile.name).font(.system(size: 32, weight: .bold, design: .rounded))
-                    Text("DEIN ANIME-ABEND").font(.caption2.bold()).tracking(3).foregroundColor(Theme.accent)
-                    Button("Profil gestalten") { editing = true }.font(.subheadline.bold()).padding(.horizontal, 22).padding(.vertical, 12).loungeCard()
-                }.frame(maxWidth: .infinity).padding(.vertical, 20)
-                HStack(spacing: 10) {
-                    metric(library.favorites.count, "Watchlist", "bookmark.fill")
-                    metric(library.watched.count, "Gesehen", "checkmark.circle.fill")
-                    metric(library.continueWatching.count, "Begonnen", "play.fill")
-                }
-                Text("Wer schaut heute?").font(.title2.bold())
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 14) {
-                    ForEach(library.snapshot.profiles, id: \.profile.id) { item in
-                        Button { library.selectProfile(item.profile.id) } label: {
-                            VStack(spacing: 12) {
-                                Image(systemName: item.profile.avatar).font(.title).foregroundColor(Theme.accent)
-                                Text(item.profile.name).font(.headline).foregroundColor(.white).lineLimit(2)
-                                Text(item.profile.id == library.profile.id ? "Aktiv" : "Profil wechseln").font(.caption).foregroundColor(.secondary)
-                            }.frame(maxWidth: .infinity).padding(.vertical, 24).loungeCard()
-                                .overlay(RoundedRectangle(cornerRadius: 22).stroke(item.profile.id == library.profile.id ? Theme.accent : .clear))
-                        }.buttonStyle(LoungePressStyle())
+                // Header with the active profile, like the account page of streaming apps.
+                HStack(spacing: 16) {
+                    Image(systemName: library.profile.avatar).font(.system(size: 30, weight: .semibold)).foregroundColor(.white)
+                        .frame(width: 72, height: 72).background(Theme.accentGradient).clipShape(RoundedRectangle(cornerRadius: 22))
+                        .shadow(color: Theme.accent.opacity(0.35), radius: 18, y: 8)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(library.profile.name).font(.system(size: 26, weight: .heavy, design: .rounded)).lineLimit(1)
+                        Button { editing = true } label: { Label("Profil bearbeiten", systemImage: "pencil").font(.caption.bold()) }
+                            .foregroundColor(Theme.accentSoft)
                     }
-                    if library.snapshot.profiles.count < 6 {
-                        Button { creating = true } label: {
-                            VStack(spacing: 12) { Image(systemName: "plus").font(.title); Text("Neues Profil").font(.headline) }
-                                .frame(maxWidth: .infinity, minHeight: 130).loungeCard()
-                        }.buttonStyle(LoungePressStyle())
+                    Spacer(minLength: 0)
+                }.padding(.top, 8)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Profil wechseln").font(.caption.bold()).tracking(1.2).foregroundColor(Theme.muted)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 16) {
+                            ForEach(library.snapshot.profiles, id: \.profile.id) { item in
+                                let active = item.profile.id == library.profile.id
+                                Button {
+                                    guard !active else { return }
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    library.selectProfile(item.profile.id)
+                                } label: {
+                                    VStack(spacing: 8) {
+                                        Image(systemName: item.profile.avatar).font(.title2.weight(.semibold))
+                                            .frame(width: 62, height: 62)
+                                            .background(active ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.panelHigh))
+                                            .clipShape(RoundedRectangle(cornerRadius: 18))
+                                            .overlay(RoundedRectangle(cornerRadius: 18).stroke(active ? Color.white.opacity(0.8) : Theme.stroke, lineWidth: active ? 2 : 1))
+                                        Text(item.profile.name).font(.caption.weight(.semibold)).lineLimit(1).frame(width: 72)
+                                    }
+                                }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
+                            }
+                            if library.snapshot.profiles.count < 6 {
+                                Button { creating = true } label: {
+                                    VStack(spacing: 8) {
+                                        Image(systemName: "plus").font(.title2.weight(.semibold)).frame(width: 62, height: 62)
+                                            .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5])).foregroundColor(Theme.muted))
+                                        Text("Neu").font(.caption.weight(.semibold)).frame(width: 72)
+                                    }
+                                }.buttonStyle(LoungePressStyle()).foregroundColor(Theme.muted)
+                            }
+                        }
                     }
                 }
-                Label("Auf diesem Gerät", systemImage: "iphone").font(.subheadline.bold())
-                Text("Jedes Profil hat seine eigene Watchlist und seinen Fortschritt. Ohne Passwort oder Cloud-Synchronisation. Browser-Anmeldungen werden gemeinsam genutzt.")
-                    .font(.footnote).foregroundColor(.secondary).lineSpacing(4)
-                Button { showingInfo = true } label: {
-                    HStack { Label("Über AniLounge", systemImage: "info.circle"); Spacer(); Image(systemName: "chevron.right").font(.caption.bold()).foregroundColor(Theme.muted) }
-                        .font(.subheadline.bold()).padding(16).loungeCard()
-                }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                    StatTile(value: hoursLabel, title: "Geschaut", icon: "clock.fill")
+                    StatTile(value: "\(library.active.finishedEpisodes)", title: "Folgen gesehen", icon: "checkmark.circle.fill")
+                    StatTile(value: "\(library.continueWatching.count)", title: "Gerade dabei", icon: "play.fill")
+                    StatTile(value: "\(library.favorites.count)", title: "Watchlist", icon: "bookmark.fill")
+                }
+                VStack(spacing: 0) {
+                    NavigationLink { HistoryView() } label: { MenuRow(title: "Verlauf", icon: "clock.arrow.circlepath", detail: library.history.isEmpty ? nil : "\(library.history.count)") }
+                    Divider().overlay(Theme.stroke).padding(.leading, 58)
+                    NavigationLink { SettingsView() } label: { MenuRow(title: "Einstellungen", icon: "gearshape.fill") }
+                    Divider().overlay(Theme.stroke).padding(.leading, 58)
+                    Button { showingInfo = true } label: { MenuRow(title: "Über AniLounge", icon: "info.circle.fill", detail: AppInfo.version) }
+                }.background(Theme.panel).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.stroke))
+                    .buttonStyle(LoungePressStyle()).foregroundColor(.white)
+                Text("Profile, Watchlists und Fortschritt bleiben auf diesem Gerät. Ohne Passwort oder Cloud-Synchronisation.")
+                    .font(.caption).foregroundColor(Theme.muted).lineSpacing(3)
             }.padding(.horizontal, 20)
         }
             .sheet(isPresented: $showingInfo) { InfoView() }
             .sheet(isPresented: $editing) { ProfileEditor(isNew: false).environmentObject(library) }
             .sheet(isPresented: $creating) { ProfileEditor(isNew: true).environmentObject(library) }
     }
-    private func metric(_ count: Int, _ title: String, _ icon: String) -> some View {
-        VStack(spacing: 10) {
-            Image(systemName: icon).foregroundColor(Theme.accent)
-            Text("\(count)").font(.title2.bold())
-            Text(title).font(.caption).foregroundColor(.secondary)
-        }.frame(maxWidth: .infinity).padding(.vertical, 20).loungeCard()
+}
+private struct StatTile: View {
+    let value: String
+    let title: String
+    let icon: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Image(systemName: icon).font(.subheadline).foregroundColor(Theme.accentSoft)
+            Text(value).font(.system(.title3, design: .rounded).bold()).lineLimit(1).minimumScaleFactor(0.7)
+            Text(title).font(.caption).foregroundColor(Theme.muted)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
+            .background(Theme.panel).clipShape(RoundedRectangle(cornerRadius: 16)).overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.stroke))
+    }
+}
+private struct MenuRow: View {
+    let title: String
+    let icon: String
+    var detail: String? = nil
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon).font(.system(size: 15, weight: .semibold)).frame(width: 30, height: 30)
+                .background(Theme.panelHigh).clipShape(RoundedRectangle(cornerRadius: 8))
+            Text(title).font(.subheadline.weight(.semibold))
+            Spacer()
+            if let detail { Text(detail).font(.footnote).foregroundColor(Theme.muted) }
+            Image(systemName: "chevron.right").font(.caption.bold()).foregroundColor(Theme.muted)
+        }.padding(.horizontal, 14).padding(.vertical, 12).contentShape(Rectangle())
     }
 }
 private struct ProfileEditor: View {

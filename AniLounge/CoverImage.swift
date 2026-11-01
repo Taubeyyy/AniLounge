@@ -14,6 +14,7 @@ struct AnimeArtwork: View {
 @MainActor final class CoverLoader: ObservableObject {
     @Published var image: UIImage?
     private static let cache = NSCache<NSURL, UIImage>()
+    static func clearCache() { cache.removeAllObjects() }
     func load(_ url: URL?) async {
         image = nil
         guard let url else { return }

@@ -1,6 +1,7 @@
 import SwiftUI
 import WebKit
 import AVKit
+import MediaPlayer
 import AniCore
 
 struct PlaybackRequest: Identifiable {
@@ -20,6 +21,19 @@ struct PlaybackRequest: Identifiable {
 /// Fine-grained play position for overlays, kept apart so only they re-render every half second.
 @MainActor final class PlayheadClock: ObservableObject {
     @Published var seconds: Double = 0
+    @Published var duration: Double = 0
+    @Published var buffered: Double = 0
+}
+/// Video surface owned by the model, so Picture in Picture survives closing the screen.
+final class PlayerSurfaceView: UIView {
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .black
+        playerLayer.videoGravity = .resizeAspect
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 }
 /// Keeps a playback session alive while it runs in Picture in Picture after its screen was closed,
 /// and re-presents it when the viewer restores the floating window.
@@ -36,7 +50,7 @@ struct PlaybackRequest: Identifiable {
         if restored === model { restored = nil }
     }
 }
-@MainActor final class PlayerModel: NSObject, ObservableObject, Identifiable, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, AVPlayerViewControllerDelegate {
+@MainActor final class PlayerModel: NSObject, ObservableObject, Identifiable, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, AVPictureInPictureControllerDelegate {
     let webView: WKWebView
     @Published private(set) var request: PlaybackRequest
     private let store: LibraryStore
@@ -58,7 +72,7 @@ struct PlaybackRequest: Identifiable {
     @Published var nextEpisode: Episode?
     @Published var nextEpisodeError: String?
     @Published var countdown: Int?
-    @Published var autoNext = UserDefaults.standard.bool(forKey: "playback.autoNext")
+    @Published var autoNext = AppSettings.shared.autoNext
     @Published var recoveryMessage: String?
     @Published private(set) var inPictureInPicture = false
     @Published private(set) var playhead: Double = 0
@@ -71,13 +85,19 @@ struct PlaybackRequest: Identifiable {
     /// The screen was closed while Picture in Picture kept playing.
     var detached = false
     private var restoringInterface = false
-    private(set) lazy var playerController: AVPlayerViewController = {
-        let controller = AVPlayerViewController()
-        controller.allowsPictureInPicturePlayback = true
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
-        controller.delegate = self
-        return controller
-    }()
+    let surface = PlayerSurfaceView()
+    private var pipController: AVPictureInPictureController?
+    private var pipObservation: NSKeyValueObservation?
+    private var controlObservation: NSKeyValueObservation?
+    private var remoteTargets: [Any] = []
+    private var autoSkippedOpening = false
+    @Published private(set) var pipPossible = false
+    @Published private(set) var isPlaying = false
+    @Published private(set) var isBuffering = false
+    @Published private(set) var speed = AppSettings.shared.speed
+    @Published var fillScreen = false
+    /// Short confirmation shown on the video, e.g. after an automatic skip.
+    @Published var toast: String?
 
     private var nativeDisabled = false
     private var downloadCookies: [HTTPCookie] = []
@@ -98,7 +118,7 @@ struct PlaybackRequest: Identifiable {
     private var restoring = false
     private var loadTask: Task<Void, Never>?
     @Published var startedAt = Date()
-    @Published var adBlockEnabled = UserDefaults.standard.object(forKey: "web.adblock.enabled") as? Bool ?? true
+    @Published var adBlockEnabled = AppSettings.shared.adBlock
     @Published var blockerStatus = "Werbeblocker wird vorbereitet"
     private var revealTask: Task<Void, Never>?
     @Published var preparing = true
@@ -121,6 +141,8 @@ struct PlaybackRequest: Identifiable {
         configuration.allowsPictureInPictureMediaPlayback = true
         configuration.websiteDataStore = .default()
         webView = WKWebView(frame: .zero, configuration: configuration)
+        // Never flash white behind hoster pages or during layout changes.
+        webView.isOpaque = false; webView.backgroundColor = .black; webView.scrollView.backgroundColor = .black
         super.init()
         webView.navigationDelegate = self; webView.uiDelegate = self
         configuration.userContentController.add(WeakProgressHandler(self), contentWorld: world, name: "aniProgress")
@@ -135,7 +157,7 @@ struct PlaybackRequest: Identifiable {
             guard !closed, !Task.isCancelled else { return }
             let preference = UserDefaults.standard.dictionary(forKey: preferenceKey)
             loadNextEpisode()
-            if let host = PlaybackSource.preferredHost(in: hosts, name: preference?["name"] as? String, language: preference?["language"] as? String) {
+            if let host = AppSettings.shared.host(in: hosts, remembered: preference) {
                 select(host, remember: false)
             } else { choosingHost = true; preparing = false }
         }
@@ -153,6 +175,10 @@ struct PlaybackRequest: Identifiable {
             let script = template.replacingOccurrences(of: "__ANILOUNGE_CONFIG__", with: json)
             controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd, forMainFrameOnly: false, in: world))
         } else { error = "Automatische Videoerkennung fehlt. Fortschritt kann in der Folgenliste eingetragen werden." }
+        // Starting JW Player (VOE) and video.js needs their page-side API.
+        if let kickURL = Bundle.main.url(forResource: "PlayerKick", withExtension: "js"), let kick = try? String(contentsOf: kickURL) {
+            controller.addUserScript(WKUserScript(source: kick, injectionTime: .atDocumentEnd, forMainFrameOnly: false, in: .page))
+        }
     }
     func select(_ host: StreamHost?, remember: Bool = true, automatic: Bool = false) {
         guard let url = host?.url ?? AniURL.page(request.episode.path) else { return }
@@ -257,7 +283,7 @@ struct PlaybackRequest: Identifiable {
     func play(_ episode: Episode) {
         guard !closed, episode.id != request.episode.id else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        skipTimes = nil
+        skipTimes = nil; autoSkippedOpening = false
         checkpoint(); stopNative(); loadTask?.cancel(); startupWatchdog?.cancel(); nextTask?.cancel(); cancelCountdown()
         token = UUID().uuidString
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
@@ -268,7 +294,7 @@ struct PlaybackRequest: Identifiable {
         Task { await loadHosts() }
     }
     func setAutoNext(_ value: Bool) {
-        autoNext = value; UserDefaults.standard.set(value, forKey: "playback.autoNext")
+        autoNext = value; AppSettings.shared.autoNext = value
         if !value { cancelCountdown() }
     }
     func cancelCountdown() { countdownTask?.cancel(); countdownTask = nil; countdown = nil }
@@ -290,7 +316,7 @@ struct PlaybackRequest: Identifiable {
     }
     func setAdBlockEnabled(_ enabled: Bool) {
         adBlockEnabled = enabled
-        UserDefaults.standard.set(enabled, forKey: "web.adblock.enabled")
+        AppSettings.shared.adBlock = enabled
         if !choosingHost, let host = selectedHost { select(host, remember: false) }
     }
     func chooseHost() {
@@ -345,8 +371,20 @@ struct PlaybackRequest: Identifiable {
             self.downloadHeaders = headers
             let asset = AVURLAsset(url: url, options: options)
             let item = AVPlayerItem(asset: asset)
+            // About 720p when saving data; 0 lets HLS pick freely.
+            item.preferredPeakBitRate = AppSettings.shared.dataSaver ? 2_500_000 : 0
             let player = AVPlayer(playerItem: item)
+            player.defaultRate = Float(self.speed)
             self.player = player
+            self.surface.playerLayer.player = player
+            self.controlObservation = player.observe(\.timeControlStatus, options: [.initial, .new]) { [weak self] player, _ in
+                Task { @MainActor [weak self] in
+                    guard let self, self.generation == attempt else { return }
+                    self.isPlaying = player.timeControlStatus != .paused
+                    self.isBuffering = player.timeControlStatus == .waitingToPlayAtSpecifiedRate
+                    self.updateNowPlaying()
+                }
+            }
             self.itemObservation = item.observe(\.status, options: [.initial, .new]) { [weak self] item, _ in
                 Task { @MainActor [weak self] in
                     guard let self, self.generation == attempt, self.player?.currentItem === item else { return }
@@ -364,6 +402,12 @@ struct PlaybackRequest: Identifiable {
                 Task { @MainActor [weak self] in
                     guard let self, self.generation == attempt, time.seconds.isFinite else { return }
                     self.clock.seconds = time.seconds
+                    if let item = self.player?.currentItem {
+                        let duration = item.duration.seconds
+                        if duration.isFinite, duration > 0, self.clock.duration != duration { self.clock.duration = duration }
+                        if let range = item.loadedTimeRanges.last?.timeRangeValue { self.clock.buffered = range.end.seconds }
+                    }
+                    self.autoSkipIfNeeded(time.seconds)
                 }
             }
             self.endObservation = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
@@ -385,7 +429,9 @@ struct PlaybackRequest: Identifiable {
         nativeReady = true; preparing = false; revealTask?.cancel(); restoring = true; timeout?.cancel(); error = nil
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
-        status = "iOS-Player · Fortschritt wird automatisch gespeichert."
+        status = "Fortschritt wird automatisch gespeichert."
+        setUpPictureInPicture()
+        setUpRemoteCommands()
         webView.setAllMediaPlaybackSuspended(true, completionHandler: nil)
         let old = store.progress(for: request.episode, profileID: request.profileID)
         let position = PlaybackSource.resumePosition(saved: old?.isFinished == true ? 0 : (old?.seconds ?? 0),
@@ -393,12 +439,12 @@ struct PlaybackRequest: Identifiable {
         let attempt = generation
         // Avoid a redundant seek at startup; resume may land within one second of the saved position.
         playhead = position
-        if position == 0 { restoring = false; player?.play(); return }
+        if position == 0 { restoring = false; player?.playImmediately(atRate: Float(speed)); return }
         let tolerance = CMTime(seconds: 1, preferredTimescale: 600)
         player?.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self, self.generation == attempt, !self.closed else { return }
-                self.restoring = false; self.player?.play()
+                self.restoring = false; self.player?.playImmediately(atRate: Float(self.speed))
             }
         }
     }
@@ -410,6 +456,77 @@ struct PlaybackRequest: Identifiable {
         record(seconds: seconds, duration: duration, completed: ended || EpisodeProgress.finished(seconds: seconds, duration: duration))
     }
     func checkpoint() { captureNative(); persist() }
+    func togglePlay() {
+        guard let player else { return }
+        if player.timeControlStatus == .paused {
+            if let duration = player.currentItem?.duration.seconds, duration.isFinite, player.currentTime().seconds >= duration - 0.5 { seek(to: 0) }
+            player.playImmediately(atRate: Float(speed))
+        } else { player.pause(); checkpoint() }
+        updateNowPlaying()
+    }
+    func setSpeed(_ value: Double) {
+        speed = value; AppSettings.shared.speed = value
+        player?.defaultRate = Float(value)
+        if player?.timeControlStatus != .paused { player?.rate = Float(value) }
+        updateNowPlaying()
+    }
+    private func autoSkipIfNeeded(_ now: Double) {
+        guard AppSettings.shared.autoSkipOpening, !autoSkippedOpening, !restoring, let times = skipTimes,
+              let opening = times.opening, times.fits(duration: player?.currentItem?.duration.seconds),
+              now >= opening.lowerBound, now < opening.upperBound - 3 else { return }
+        autoSkippedOpening = true
+        seek(to: opening.upperBound)
+        showToast("Opening übersprungen")
+    }
+    func showToast(_ text: String) {
+        toast = text
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if self?.toast == text { self?.toast = nil }
+        }
+    }
+    // MARK: Lock screen and Control Center
+    private func setUpRemoteCommands() {
+        guard remoteTargets.isEmpty else { updateNowPlaying(); return }
+        let center = MPRemoteCommandCenter.shared()
+        center.skipForwardCommand.preferredIntervals = [10]
+        center.skipBackwardCommand.preferredIntervals = [10]
+        remoteTargets = [
+            center.playCommand.addTarget { [weak self] _ in self?.remote { $0.player?.playImmediately(atRate: Float($0.speed)) }; return .success },
+            center.pauseCommand.addTarget { [weak self] _ in self?.remote { $0.player?.pause() }; return .success },
+            center.togglePlayPauseCommand.addTarget { [weak self] _ in self?.remote { $0.togglePlay() }; return .success },
+            center.skipForwardCommand.addTarget { [weak self] _ in self?.remote { $0.skip(10) }; return .success },
+            center.skipBackwardCommand.addTarget { [weak self] _ in self?.remote { $0.skip(-10) }; return .success },
+            center.changePlaybackPositionCommand.addTarget { [weak self] event in
+                guard let event = event as? MPChangePlaybackPositionCommandEvent else { return .commandFailed }
+                self?.remote { $0.seek(to: event.positionTime) }; return .success
+            }
+        ]
+        updateNowPlaying()
+    }
+    private nonisolated func remote(_ action: @escaping @MainActor (PlayerModel) -> Void) {
+        Task { @MainActor [weak self] in if let self { action(self) } }
+    }
+    private func updateNowPlaying() {
+        guard nativeReady, let player, let item = player.currentItem else { return }
+        var info: [String: Any] = [
+            MPMediaItemPropertyTitle: "Folge \(request.episode.number) · \(request.episode.title)",
+            MPMediaItemPropertyArtist: request.anime.title,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime: player.currentTime().seconds,
+            MPNowPlayingInfoPropertyPlaybackRate: player.timeControlStatus == .paused ? 0 : speed
+        ]
+        if item.duration.seconds.isFinite { info[MPMediaItemPropertyPlaybackDuration] = item.duration.seconds }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+    }
+    private func tearDownRemoteCommands() {
+        let center = MPRemoteCommandCenter.shared()
+        for target in remoteTargets {
+            [center.playCommand, center.pauseCommand, center.togglePlayPauseCommand, center.skipForwardCommand,
+             center.skipBackwardCommand, center.changePlaybackPositionCommand].forEach { $0.removeTarget(target) }
+        }
+        remoteTargets = []
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
     func isSeen(_ episode: Episode) -> Bool { store.progress(for: episode, profileID: request.profileID)?.isFinished == true }
     func progress(of episode: Episode) -> EpisodeProgress? { store.progress(for: episode, profileID: request.profileID) }
     func skip(_ seconds: Double) {
@@ -422,17 +539,32 @@ struct PlaybackRequest: Identifiable {
         guard target.isFinite else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         playhead = target
+        clock.seconds = target
         player.seek(to: CMTime(seconds: target, preferredTimescale: 600)) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.checkpoint() }
+            Task { @MainActor [weak self] in self?.checkpoint(); self?.updateNowPlaying() }
         }
     }
     // MARK: Picture in Picture
-    func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) { inPictureInPicture = true }
-    func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
+    private func setUpPictureInPicture() {
+        guard pipController == nil, AVPictureInPictureController.isPictureInPictureSupported() else { return }
+        let controller = AVPictureInPictureController(playerLayer: surface.playerLayer)
+        controller?.delegate = self
+        controller?.canStartPictureInPictureAutomaticallyFromInline = true
+        pipController = controller
+        pipObservation = controller?.observe(\.isPictureInPicturePossible, options: [.initial, .new]) { [weak self] controller, _ in
+            Task { @MainActor [weak self] in self?.pipPossible = controller.isPictureInPicturePossible }
+        }
+    }
+    func togglePictureInPicture() {
+        guard let pipController else { return }
+        if pipController.isPictureInPictureActive { pipController.stopPictureInPicture() } else { pipController.startPictureInPicture() }
+    }
+    func pictureInPictureControllerWillStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) { inPictureInPicture = true }
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
         inPictureInPicture = false
         if detached && !restoringInterface { finish() }
     }
-    func playerViewController(_ playerViewController: AVPlayerViewController, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
+    func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
         guard detached, !closed else { completionHandler(true); return }
         restoringInterface = true
         PlaybackCenter.shared.restored = self
@@ -462,7 +594,10 @@ struct PlaybackRequest: Identifiable {
         generation = UUID(); timeout?.cancel(); timeout = nil
         itemObservation?.invalidate(); itemObservation = nil
         if let timeObserver, let player { player.removeTimeObserver(timeObserver) }; timeObserver = nil
-        if let clockObserver, let player { player.removeTimeObserver(clockObserver) }; clockObserver = nil; clock.seconds = 0
+        if let clockObserver, let player { player.removeTimeObserver(clockObserver) }; clockObserver = nil
+        clock.seconds = 0; clock.duration = 0; clock.buffered = 0
+        controlObservation?.invalidate(); controlObservation = nil; isPlaying = false; isBuffering = false
+        surface.playerLayer.player = nil
         if let endObservation { NotificationCenter.default.removeObserver(endObservation) }; endObservation = nil
         player?.pause(); player?.replaceCurrentItem(with: nil); player = nil; nativeReady = false; restoring = false; playhead = 0
         webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
@@ -473,7 +608,8 @@ struct PlaybackRequest: Identifiable {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "aniProgress", contentWorld: world)
-        playerController.player = nil; detached = false
+        pipObservation?.invalidate(); pipObservation = nil; pipController = nil; tearDownRemoteCommands()
+        detached = false
         PlaybackCenter.shared.ended(self)
     }
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
@@ -527,49 +663,49 @@ struct PlaybackView: View {
     }
     /// iPhone landscape: the video fills the screen like a streaming app.
     private var theater: Bool { verticalSize == .compact && !model.choosingHost }
-    private var videoSized: Bool { model.nativeReady || model.preparing }
     var body: some View {
         NavigationStack {
-            Group {
+            // One stable hierarchy for every orientation: the video surface and the web view are
+            // never rebuilt when rotating, which used to leave a white, detached player behind.
+            ZStack {
+                VStack(spacing: 0) {
+                    if !theater { topBar }
+                    stage
+                        .frame(maxWidth: .infinity, maxHeight: theater ? .infinity : nil)
+                        .aspectRatio(theater ? nil : 16 / 9, contentMode: .fit)
+                        .ignoresSafeArea(edges: theater ? .all : [])
+                    if !theater { infoPanel }
+                }
                 if model.choosingHost {
-                    VStack(spacing: 0) { topBar; hostPicker }
-                } else if theater {
-                    stage.ignoresSafeArea()
-                } else {
-                    VStack(spacing: 0) {
-                        topBar
-                        if videoSized { stage.aspectRatio(16 / 9, contentMode: .fit) } else { stage }
-                        infoPanel
-                    }
+                    VStack(spacing: 0) { topBar; hostPicker }.background(Theme.background.ignoresSafeArea())
                 }
             }.background((theater ? Color.black : Theme.background).ignoresSafeArea())
                 .toolbar(.hidden, for: .navigationBar)
                 .statusBarHidden(theater)
+                .persistentSystemOverlays(theater ? .hidden : .automatic)
                 .alert("Download", isPresented: Binding(get: { downloads.storageError != nil }, set: { if !$0 { downloads.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(downloads.storageError ?? "") }
-                .loungeSheet(isPresented: $showingMore, height: model.nativeReady ? 400 : 300) { moreSheet }
+                .loungeSheet(isPresented: $showingMore, height: model.nativeReady ? 470 : 300) { moreSheet }
                 .task { PlaybackCenter.shared.activate(model); await model.loadHosts() }
                 .onChange(of: phase) { if $0 != .active { model.checkpoint(); model.cancelCountdown() } }
                 // Picture in Picture continues in a small window while the viewer keeps browsing.
                 .onChange(of: model.inPictureInPicture) { if $0 { dismiss() } }
-                // Covering this view (AVKit fullscreen) is not closing the playback session.
                 .onDisappear { model.checkpoint() }
                 .background(PlaybackLifetime(model: model).frame(width: 0, height: 0))
         }.tint(Theme.accent).preferredColorScheme(.dark)
     }
+    private func close() { model.finish(); dismiss() }
 
     // MARK: Top bar
     private var topBar: some View {
         HStack(spacing: 12) {
-            Button { model.finish(); dismiss() } label: { CircleIcon(systemName: "chevron.down") }
+            Button { close() } label: { CircleIcon(systemName: "chevron.down") }
                 .buttonStyle(LoungePressStyle()).accessibilityLabel("Player schließen")
             VStack(alignment: .leading, spacing: 1) {
                 Text(model.request.anime.title).font(.subheadline.bold()).lineLimit(1)
                 Text(model.choosingHost ? "Quelle wählen" : "Folge \(model.request.episode.number)").font(.caption).foregroundColor(Theme.muted)
             }
             Spacer(minLength: 0)
-            if !model.choosingHost {
-                Button { showingMore = true } label: { CircleIcon(systemName: "ellipsis") }.buttonStyle(LoungePressStyle()).accessibilityLabel("Weitere Optionen")
-            } else if model.selectedHost != nil {
+            if model.choosingHost && model.selectedHost != nil {
                 Button("Zurück") { model.select(model.selectedHost, remember: false) }.font(.subheadline.bold())
             }
         }.padding(.horizontal, 16).padding(.vertical, 8)
@@ -580,9 +716,11 @@ struct PlaybackView: View {
         ZStack {
             Color.black
             PlayerWebView(webView: model.webView).opacity(model.nativeReady || model.preparing ? 0 : 1)
+            PlayerSurface(model: model, fill: model.fillScreen).opacity(model.nativeReady ? 1 : 0).allowsHitTesting(false)
             if model.preparing { loadingCard }
-            if model.nativeReady, let player = model.player { NativePlayerView(model: model, player: player) }
-            if model.nativeReady { SkipOverlay(model: model, clock: model.clock, bottom: theater ? 76 : 56) }
+            if model.nativeReady {
+                PlayerControls(model: model, clock: model.clock, theater: theater, close: close, more: { showingMore = true })
+            }
         }.clipped()
     }
     private var loadingCard: some View {
@@ -704,10 +842,12 @@ struct PlaybackView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Wiedergabe").font(.headline).padding(.horizontal, 20).padding(.bottom, 8)
             if model.nativeReady {
-                SheetRow(title: "10 Sekunden zurück", icon: "gobackward.10") { model.skip(-10) }
-                SheetRow(title: "85 Sekunden vor", icon: "goforward", detail: "Opening") { model.skip(85) }
+                SettingsPills(title: "Geschwindigkeit", icon: "speedometer", options: AppSettings.speeds, label: AppSettings.speedLabel,
+                              selection: Binding(get: { model.speed }, set: { model.setSpeed($0) }))
+                SheetToggle(title: "Bildschirm füllen", icon: "arrow.up.left.and.arrow.down.right", isOn: $model.fillScreen)
             }
             SheetToggle(title: "Nächste Folge automatisch", icon: "forward.end", isOn: Binding(get: { model.autoNext }, set: { model.setAutoNext($0) }))
+            SheetToggle(title: "Opening automatisch überspringen", icon: "forward.fill", isOn: Binding(get: { AppSettings.shared.autoSkipOpening }, set: { AppSettings.shared.autoSkipOpening = $0 }))
             if !model.isOffline {
                 SheetToggle(title: "Werbeblocker", icon: "shield.lefthalf.filled", isOn: Binding(get: { model.adBlockEnabled }, set: { model.setAdBlockEnabled($0) }))
             }
@@ -753,7 +893,187 @@ struct PlaybackView: View {
         }.background(Theme.background)
     }
 }
-/// Streaming-app buttons above the AVKit controls, only while they make sense:
+/// Streaming-app controls drawn over the video: tap to show/hide, double-tap a side to jump
+/// 10 seconds, a scrubber with buffer, rotation, Picture in Picture and settings.
+private struct PlayerControls: View {
+    @ObservedObject var model: PlayerModel
+    @ObservedObject var clock: PlayheadClock
+    let theater: Bool
+    let close: () -> Void
+    let more: () -> Void
+    @State private var visible = true
+    @State private var hideTask: Task<Void, Never>?
+    @State private var scrub: Double?
+    @State private var flash: (text: String, forward: Bool)?
+    @State private var flashID = UUID()
+    var body: some View {
+        ZStack {
+            HStack(spacing: 0) {
+                tapZone(forward: false)
+                tapZone(forward: true)
+            }
+            if visible { chrome.transition(.opacity) }
+            if !visible && model.isBuffering { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
+            SkipOverlay(model: model, clock: clock, bottom: visible ? (theater ? 96 : 66) : (theater ? 30 : 12))
+            if let flash {
+                Text(flash.text).font(.headline.bold()).padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(.ultraThinMaterial).clipShape(Capsule())
+                    .frame(maxWidth: .infinity, alignment: flash.forward ? .trailing : .leading).padding(.horizontal, theater ? 80 : 30)
+                    .allowsHitTesting(false).transition(.opacity)
+            }
+            if let toast = model.toast {
+                Text(toast).font(.footnote.bold()).padding(.horizontal, 14).padding(.vertical, 8).background(.ultraThinMaterial).clipShape(Capsule())
+                    .frame(maxHeight: .infinity, alignment: .top).padding(.top, theater ? 70 : 50).allowsHitTesting(false).transition(.opacity)
+            }
+        }
+        .foregroundColor(.white)
+        .animation(.easeInOut(duration: 0.2), value: visible)
+        .animation(.easeInOut(duration: 0.2), value: model.toast)
+        .onAppear { scheduleHide() }
+        .onChange(of: model.isPlaying) { playing in
+            if playing { scheduleHide() } else { hideTask?.cancel(); withAnimation { visible = true } }
+        }
+    }
+    private func tapZone(forward: Bool) -> some View {
+        Color.clear.contentShape(Rectangle())
+            .onTapGesture(count: 2) {
+                model.skip(forward ? 10 : -10)
+                let id = UUID(); flashID = id
+                withAnimation(.easeOut(duration: 0.15)) { flash = (forward ? "+10 s" : "−10 s", forward) }
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 650_000_000)
+                    if flashID == id { withAnimation { flash = nil } }
+                }
+            }
+            .onTapGesture {
+                if visible { hideTask?.cancel(); withAnimation { visible = false } } else { withAnimation { visible = true }; scheduleHide() }
+            }
+    }
+    private func scheduleHide() {
+        hideTask?.cancel()
+        hideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 3_500_000_000)
+            guard !Task.isCancelled, model.isPlaying, scrub == nil else { return }
+            withAnimation { visible = false }
+        }
+    }
+    /// Runs a control action and keeps the controls on screen a little longer.
+    private func act(_ action: () -> Void) { action(); scheduleHide() }
+
+    private var chrome: some View {
+        ZStack {
+            LinearGradient(stops: [.init(color: .black.opacity(0.7), location: 0), .init(color: .black.opacity(0.15), location: 0.3),
+                                   .init(color: .black.opacity(0.15), location: 0.6), .init(color: .black.opacity(0.8), location: 1)],
+                           startPoint: .top, endPoint: .bottom).allowsHitTesting(false)
+            VStack(spacing: 0) {
+                HStack(spacing: 14) {
+                    if theater {
+                        Button(action: close) { Image(systemName: "chevron.down").font(.title3.weight(.bold)).frame(width: 40, height: 40) }
+                            .accessibilityLabel("Player schließen")
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(model.request.anime.title).font(.headline).lineLimit(1)
+                            Text("Folge \(model.request.episode.number) · \(model.request.episode.title)").font(.caption).foregroundColor(.white.opacity(0.75)).lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    if model.pipPossible {
+                        Button { model.togglePictureInPicture() } label: { Image(systemName: "pip.enter").font(.title3.weight(.semibold)).frame(width: 40, height: 40) }
+                            .accessibilityLabel("Bild in Bild")
+                    }
+                    Button(action: more) { Image(systemName: "gearshape.fill").font(.title3.weight(.semibold)).frame(width: 40, height: 40) }
+                        .accessibilityLabel("Wiedergabe-Einstellungen")
+                }
+                Spacer(minLength: 0)
+                bottomBar
+            }.padding(.horizontal, theater ? 36 : 12).padding(.top, theater ? 14 : 6).padding(.bottom, theater ? 18 : 6)
+            HStack(spacing: theater ? 72 : 48) {
+                Button { act { model.skip(-10) } } label: { Image(systemName: "gobackward.10").font(.system(size: theater ? 34 : 28, weight: .semibold)) }
+                    .accessibilityLabel("10 Sekunden zurück")
+                ZStack {
+                    if model.isBuffering { ProgressView().controlSize(.large).tint(.white) }
+                    else {
+                        Button { act { model.togglePlay() } } label: {
+                            Image(systemName: model.isPlaying ? "pause.fill" : "play.fill").font(.system(size: theater ? 48 : 40, weight: .bold))
+                        }.accessibilityLabel(model.isPlaying ? "Pause" : "Abspielen")
+                    }
+                }.frame(width: 64, height: 64)
+                Button { act { model.skip(10) } } label: { Image(systemName: "goforward.10").font(.system(size: theater ? 34 : 28, weight: .semibold)) }
+                    .accessibilityLabel("10 Sekunden vor")
+            }.shadow(color: .black.opacity(0.4), radius: 8)
+        }.buttonStyle(LoungePressStyle())
+    }
+    private var bottomBar: some View {
+        VStack(spacing: theater ? 8 : 2) {
+            Scrubber(value: scrub ?? clock.seconds, duration: clock.duration, buffered: clock.buffered,
+                     changed: { scrub = $0; hideTask?.cancel() },
+                     ended: { model.seek(to: $0); scrub = nil; scheduleHide() })
+            HStack(spacing: 14) {
+                Text("\(EpisodeProgress.format(scrub ?? clock.seconds)) / \(EpisodeProgress.format(clock.duration))")
+                    .font(.caption.weight(.semibold).monospacedDigit()).foregroundColor(.white.opacity(0.85))
+                Spacer(minLength: 0)
+                if theater, let next = model.nextEpisode {
+                    Button { model.playNext() } label: { Label("Folge \(next.number)", systemImage: "forward.end.fill").font(.footnote.bold()) }
+                }
+                if theater {
+                    Button { act { model.fillScreen.toggle() } } label: {
+                        Image(systemName: model.fillScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right").font(.body.weight(.semibold))
+                    }.accessibilityLabel(model.fillScreen ? "Ganzes Bild zeigen" : "Bildschirm füllen")
+                }
+                Button { OrientationLock.rotate(toLandscape: !theater); scheduleHide() } label: {
+                    Image(systemName: theater ? "arrow.down.right.and.arrow.up.left.rectangle" : "arrow.up.left.and.arrow.down.right.rectangle")
+                        .font(.body.weight(.semibold)).frame(width: 34, height: 30)
+                }.accessibilityLabel(theater ? "Hochformat" : "Vollbild")
+            }
+        }
+    }
+}
+private struct Scrubber: View {
+    let value: Double
+    let duration: Double
+    let buffered: Double
+    let changed: (Double) -> Void
+    let ended: (Double) -> Void
+    @State private var dragging = false
+    var body: some View {
+        GeometryReader { geo in
+            let width = max(1, geo.size.width)
+            let played = duration > 0 ? min(1, max(0, value / duration)) : 0
+            let loaded = duration > 0 ? min(1, max(0, buffered / duration)) : 0
+            let bar: CGFloat = dragging ? 6 : 4
+            let knob: CGFloat = dragging ? 18 : 12
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.22)).frame(height: bar)
+                Capsule().fill(.white.opacity(0.4)).frame(width: width * loaded, height: bar)
+                Capsule().fill(Theme.accent).frame(width: width * played, height: bar)
+                Circle().fill(Theme.accent).frame(width: knob, height: knob).shadow(radius: 3)
+                    .offset(x: width * played - knob / 2)
+            }
+            .frame(height: 28).contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { gesture in
+                    if !dragging { dragging = true; UISelectionFeedbackGenerator().selectionChanged() }
+                    changed(min(1, max(0, gesture.location.x / width)) * duration)
+                }
+                .onEnded { gesture in
+                    dragging = false
+                    ended(min(1, max(0, gesture.location.x / width)) * duration)
+                })
+            .animation(.easeOut(duration: 0.15), value: dragging)
+        }
+        .frame(height: 28)
+        .accessibilityElement()
+        .accessibilityLabel("Wiedergabeposition")
+        .accessibilityValue(EpisodeProgress.format(value))
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: ended(min(duration, value + 10))
+            case .decrement: ended(max(0, value - 10))
+            @unknown default: break
+            }
+        }
+    }
+}
+/// Skip buttons above the controls, only while they make sense:
 /// during the real opening/ending (AniSkip) and for the autoplay countdown.
 private struct SkipOverlay: View {
     @ObservedObject var model: PlayerModel
@@ -856,7 +1176,7 @@ struct NoticeView: View {
     }
 }
 /// SwiftUI dismantles this owner only when the playback screen is actually removed.
-/// AVKit covering the screen must leave the player, its item and observers alive.
+/// Anything covering the screen must leave the player, its item and observers alive.
 @MainActor private struct PlaybackLifetime: UIViewRepresentable {
     let model: PlayerModel
     final class Coordinator {
@@ -864,28 +1184,30 @@ struct NoticeView: View {
         init(_ model: PlayerModel) { self.model = model }
     }
     func makeCoordinator() -> Coordinator { Coordinator(model) }
-    func makeUIView(context: Context) -> UIView { model.detached = false; return UIView(frame: .zero) }
+    func makeUIView(context: Context) -> UIView {
+        model.detached = false
+        // Only the player may turn sideways; browsing stays upright on iPhone.
+        DispatchQueue.main.async { OrientationLock.allowRotation(true) }
+        return UIView(frame: .zero)
+    }
     func updateUIView(_ view: UIView, context: Context) {}
-    static func dismantleUIView(_ view: UIView, coordinator: Coordinator) { coordinator.model.screenRemoved() }
+    static func dismantleUIView(_ view: UIView, coordinator: Coordinator) {
+        coordinator.model.screenRemoved()
+        DispatchQueue.main.async { OrientationLock.allowRotation(false) }
+    }
 }
 private struct PlayerWebView: UIViewRepresentable {
     let webView: WKWebView
     func makeUIView(context: Context) -> WKWebView { webView }
     func updateUIView(_ view: WKWebView, context: Context) {}
 }
-private struct NativePlayerView: UIViewControllerRepresentable {
+private struct PlayerSurface: UIViewRepresentable {
     let model: PlayerModel
-    let player: AVPlayer
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        // The model owns the controller so Picture in Picture survives closing this screen.
-        let controller = model.playerController
-        controller.removeFromParent()
-        if controller.player !== player { controller.player = player }
-        return controller
-    }
-    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
-        // Progress updates must not reattach the same player during an AVKit transition.
-        if controller.player !== player { controller.player = player }
+    let fill: Bool
+    func makeUIView(context: Context) -> PlayerSurfaceView { model.surface }
+    func updateUIView(_ view: PlayerSurfaceView, context: Context) {
+        let gravity: AVLayerVideoGravity = fill ? .resizeAspectFill : .resizeAspect
+        if view.playerLayer.videoGravity != gravity { view.playerLayer.videoGravity = gravity }
     }
 }
 
