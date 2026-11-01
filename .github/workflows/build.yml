@@ -50,10 +50,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Downloads für MP4/M4V und geeignete HLS-Streams: eigener Bereich pro Profil, Fortschritt, Abbrechen, Löschen und Offline-Wiedergabe im nativen Player mit gespeichertem Fortschritt.
-          Folge starten und unter dem nativen Player „Herunterladen · WLAN“ antippen. Downloads verwenden ausschließlich WLAN und werden vor der Offline-Freigabe geprüft. Unterstützte iOS-Hintergrundübertragung; erzwungenes Beenden kann Downloads abbrechen.
-          Verfügbarkeit hängt von der Quelle ab. Keine DRM-Downloads. Fehlerhafte Downloads online öffnen und über eine neue Quelle erneut starten. Noch kein Pausieren/Fortsetzen und keine Qualitätsauswahl.
-          Mit TrollStore als Update installieren, um lokale Daten zu behalten. Anbieter-Downloads und Hintergrundverhalten auf echtem iOS-16.4-Gerät noch nicht geprüft.
+          Neuer Look im Streaming-Stil: Hero-Karussell, Weiterschauen-Kacheln, Poster-Raster in Suche und Watchlist, neue Detailseite mit smartem Abspielen-Knopf, animierte Tableiste und ein neues App-Icon.
+          Player neu: Video oben, Infos darunter, im Querformat randlos. Bild-in-Bild läuft weiter, während du in der App stöberst. „Opening überspringen“, „10 s zurück“ und ein Countdown zur nächsten Folge direkt auf dem Video.
+          Downloads: jetzt auch über Mobilfunk und mit Referer des Anbieters, damit mehr Hoster den Download erlauben. Der Download-Knopf ist sichtbar, sobald die Folge im iOS-Player läuft.
+          Mit TrollStore als Update installieren, um lokale Daten zu behalten. Laufende 0.5-Downloads werden als unterbrochen markiert.
           NOTES
-          gh release create v0.5.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.5.0" --notes-file build/release-notes.md
+          gh release create v0.6.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.6.0" --notes-file build/release-notes.md
 

@@ -17,7 +17,22 @@ struct PlaybackRequest: Identifiable {
         target?.userContentController(userContentController, didReceive: message)
     }
 }
-@MainActor final class PlayerModel: NSObject, ObservableObject, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate {
+/// Keeps a playback session alive while it runs in Picture in Picture after its screen was closed,
+/// and re-presents it when the viewer restores the floating window.
+@MainActor final class PlaybackCenter: ObservableObject {
+    static let shared = PlaybackCenter()
+    @Published var restored: PlayerModel?
+    private(set) var current: PlayerModel?
+    func activate(_ model: PlayerModel) {
+        if let current, current !== model { current.finish() }
+        current = model
+    }
+    func ended(_ model: PlayerModel) {
+        if current === model { current = nil }
+        if restored === model { restored = nil }
+    }
+}
+@MainActor final class PlayerModel: NSObject, ObservableObject, Identifiable, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, AVPlayerViewControllerDelegate {
     let webView: WKWebView
     @Published private(set) var request: PlaybackRequest
     private let store: LibraryStore
@@ -41,13 +56,30 @@ struct PlaybackRequest: Identifiable {
     @Published var countdown: Int?
     @Published var autoNext = UserDefaults.standard.bool(forKey: "playback.autoNext")
     @Published var recoveryMessage: String?
+    @Published private(set) var inPictureInPicture = false
+    @Published private(set) var playhead: Double = 0
+    /// The screen was closed while Picture in Picture kept playing.
+    var detached = false
+    private var restoringInterface = false
+    private(set) lazy var playerController: AVPlayerViewController = {
+        let controller = AVPlayerViewController()
+        controller.allowsPictureInPicturePlayback = true
+        controller.canStartPictureInPictureAutomaticallyFromInline = true
+        controller.delegate = self
+        return controller
+    }()
 
     private var nativeDisabled = false
     private var downloadCookies: [HTTPCookie] = []
+    private var downloadHeaders: [String: String] = [:]
+    private func mediaHeaders() -> [String: String] {
+        guard let page = mediaFrame?.request.url ?? webView.url, page.scheme == "https", let host = page.host else { return [:] }
+        return ["Referer": page.absoluteString, "Origin": "https://" + host]
+    }
     var isOffline: Bool { request.localURL != nil }
     func download() {
         guard nativeReady, let asset = player?.currentItem?.asset as? AVURLAsset, !isOffline else { return }
-        DownloadStore.shared.enqueue(request: request, asset: asset, cookies: downloadCookies, source: selectedHost.map { "\($0.name) · \($0.language)" } ?? "Video")
+        DownloadStore.shared.enqueue(request: request, asset: asset, cookies: downloadCookies, headers: downloadHeaders, source: selectedHost.map { "\($0.name) · \($0.language)" } ?? "Video")
     }
     private var itemObservation: NSKeyValueObservation?
     private var endObservation: NSObjectProtocol?
@@ -257,7 +289,7 @@ struct PlaybackRequest: Identifiable {
     private func record(seconds: Double, duration: Double, completed: Bool) {
         startupWatchdog?.cancel()
         if handledEnd && !completed { handledEnd = false; cancelCountdown() }
-        lastPosition = min(seconds, duration); lastDuration = duration; lastCompleted = completed
+        lastPosition = min(seconds, duration); lastDuration = duration; lastCompleted = completed; playhead = min(seconds, duration)
         persist()
         savedLabel = "\(EpisodeProgress.format(seconds)) / \(EpisodeProgress.format(duration))"
     }
@@ -279,7 +311,12 @@ struct PlaybackRequest: Identifiable {
                 return (host == domain || host.hasSuffix("." + domain)) && url.path.hasPrefix($0.path)
             }
             self.downloadCookies = matching
-            let asset = AVURLAsset(url: url, options: [AVURLAssetHTTPCookiesKey: matching])
+            var options: [String: Any] = [AVURLAssetHTTPCookiesKey: matching]
+            // Many hosters reject media requests without the embedding page as referer.
+            let headers = self.mediaHeaders()
+            if !headers.isEmpty { options["AVURLAssetHTTPHeaderFieldsKey"] = headers }
+            self.downloadHeaders = headers
+            let asset = AVURLAsset(url: url, options: options)
             let item = AVPlayerItem(asset: asset)
             let player = AVPlayer(playerItem: item)
             self.player = player
@@ -322,6 +359,7 @@ struct PlaybackRequest: Identifiable {
                                                      savedDuration: old?.duration, duration: item.duration.seconds.isFinite ? item.duration.seconds : (lastDuration ?? old?.duration ?? 0))
         let attempt = generation
         // Avoid a redundant seek at startup; resume may land within one second of the saved position.
+        playhead = position
         if position == 0 { restoring = false; player?.play(); return }
         let tolerance = CMTime(seconds: 1, preferredTimescale: 600)
         player?.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
@@ -339,6 +377,39 @@ struct PlaybackRequest: Identifiable {
         record(seconds: seconds, duration: duration, completed: ended || seconds >= duration - 10)
     }
     func checkpoint() { captureNative(); persist() }
+    func skip(_ seconds: Double) {
+        guard nativeReady, let player else { return }
+        let target = max(0, player.currentTime().seconds + seconds)
+        guard target.isFinite else { return }
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        playhead = target
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600)) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.checkpoint() }
+        }
+    }
+    // MARK: Picture in Picture
+    func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) { inPictureInPicture = true }
+    func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
+        inPictureInPicture = false
+        if detached && !restoringInterface { finish() }
+    }
+    func playerViewController(_ playerViewController: AVPlayerViewController, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
+        guard detached, !closed else { completionHandler(true); return }
+        restoringInterface = true
+        PlaybackCenter.shared.restored = self
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 600_000_000)
+            guard let self else { completionHandler(false); return }
+            self.restoringInterface = false
+            completionHandler(!self.detached)
+            // The app could not show the player (another sheet in the way): end the session cleanly.
+            if self.detached && !self.inPictureInPicture { self.finish() }
+        }
+    }
+    /// Called when the playback screen goes away. Picture in Picture keeps the session running.
+    func screenRemoved() {
+        if inPictureInPicture || restoringInterface { detached = true } else { finish() }
+    }
     func useWebPlayer(_ reason: String = "Webplayer aktiv. Neue Fenster bleiben blockiert.") {
         checkpoint(); stopNative(); startupWatchdog?.cancel(); nativeDisabled = true; preparing = false; revealTask?.cancel()
         webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
@@ -353,7 +424,7 @@ struct PlaybackRequest: Identifiable {
         itemObservation?.invalidate(); itemObservation = nil
         if let timeObserver, let player { player.removeTimeObserver(timeObserver) }; timeObserver = nil
         if let endObservation { NotificationCenter.default.removeObserver(endObservation) }; endObservation = nil
-        player?.pause(); player?.replaceCurrentItem(with: nil); player = nil; nativeReady = false; restoring = false
+        player?.pause(); player?.replaceCurrentItem(with: nil); player = nil; nativeReady = false; restoring = false; playhead = 0
         webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
     }
     func finish() {
@@ -362,6 +433,8 @@ struct PlaybackRequest: Identifiable {
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "aniProgress", contentWorld: world)
+        playerController.player = nil; detached = false
+        PlaybackCenter.shared.ended(self)
     }
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard !choosingHost, !nativeReady, webView.url?.scheme == "https" else { return }
@@ -404,117 +477,293 @@ struct PlaybackView: View {
     @ObservedObject private var downloads = DownloadStore.shared
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var phase
+    @Environment(\.verticalSizeClass) private var verticalSize
     init(request: PlaybackRequest, library: LibraryStore) {
         _model = StateObject(wrappedValue: PlayerModel(request: request, store: library))
     }
     init(model: PlayerModel) {
         _model = StateObject(wrappedValue: model)
     }
+    /// iPhone landscape: the video fills the screen like a streaming app.
+    private var theater: Bool { verticalSize == .compact && !model.choosingHost }
+    private var videoSized: Bool { model.nativeReady || model.preparing }
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
+            Group {
                 if model.choosingHost {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 20) {
-                            Text("DEINE WIEDERGABE").font(.caption.bold()).tracking(3).foregroundColor(Theme.accent)
-                            Text(model.request.anime.title).font(.largeTitle.bold())
-                            Text("Quelle & Sprache").font(.title3.bold())
-                            Toggle("Nächste Folge automatisch", isOn: Binding(get: { model.autoNext }, set: { model.setAutoNext($0) })).tint(Theme.accent)
-                            Toggle("Werbeblocker", isOn: Binding(get: { model.adBlockEnabled }, set: { model.setAdBlockEnabled($0) })).tint(Theme.accent)
-                            Text("Blockiert bekannte Werbeserver. Bei Problemen ausschalten und eine Quelle öffnen.").font(.caption).foregroundColor(.secondary)
-                            Text("Deine Auswahl wird für die nächsten Folgen gemerkt.").font(.subheadline).foregroundColor(.secondary)
-                            ForEach(Array(Set(model.hosts.map(\.language))).sorted(), id: \.self) { language in
-                                VStack(alignment: .leading, spacing: 10) {
-                                    Text(language).font(.caption.bold()).foregroundColor(.secondary)
-                                    ForEach(model.hosts.filter { $0.language == language }) { host in
-                                        Button { model.select(host) } label: {
-                                            HStack(spacing: 16) {
-                                                Image(systemName: "play.fill").frame(width: 46, height: 46).background(Theme.accent.opacity(0.18)).clipShape(Circle())
-                                                Text(host.name).font(.headline)
-                                                Spacer()
-                                                Image(systemName: model.selectedHost?.id == host.id ? "checkmark.circle.fill" : "arrow.up.right")
-                                            }.padding(16).loungeCard()
-                                        }.buttonStyle(LoungePressStyle())
-                                    }
-                                }
-                            }
-                            if let error = model.error {
-                                Text(error).foregroundColor(.orange)
-                                Button("Erneut versuchen") { Task { await model.loadHosts() } }.buttonStyle(.borderedProminent)
-                            }
-                        }.padding(24)
-                    }
+                    hostPicker
+                } else if theater {
+                    stage.ignoresSafeArea()
                 } else {
-                    ZStack {
-                        PlayerWebView(webView: model.webView).opacity(model.nativeReady || model.preparing ? 0 : 1)
-                        if model.preparing {
-                            VStack(spacing: 22) {
-                                Image(systemName: "play.rectangle.fill").font(.system(size: 64)).foregroundStyle(Theme.accent.gradient)
-                                Text(model.request.anime.title).font(.title2.bold()).multilineTextAlignment(.center)
-                                ProgressView().tint(Theme.accent)
-                                TimelineView(.periodic(from: model.startedAt, by: 1)) { context in
-                                    Text("Lädt seit \(max(0, Int(context.date.timeIntervalSince(model.startedAt)))) s").font(.caption.monospacedDigit()).foregroundColor(.secondary)
-                                }
-                                Text(model.selectedHost.map { "\($0.name) · \($0.language)" } ?? "Standardquelle wird gesucht …").font(.subheadline).foregroundColor(.secondary)
-                                if !model.isOffline { Button("Quelle ändern") { model.chooseHost() }.buttonStyle(.bordered) }
-                            }.padding(30).frame(maxWidth: .infinity, maxHeight: .infinity).background(Theme.background)
-                        }
-                        if model.nativeReady, let player = model.player { NativePlayerView(player: player) }
+                    VStack(spacing: 0) {
+                        if videoSized { stage.aspectRatio(16 / 9, contentMode: .fit) } else { stage }
+                        infoPanel
                     }
-                    VStack(spacing: 8) {
-                        if model.nativeReady && !model.isOffline {
-                            if let existing = downloads.existing(model.request) {
-                                Label(existing.state == .ready ? "Offline gespeichert" : "Download läuft · siehe Downloads", systemImage: existing.state == .ready ? "checkmark.circle.fill" : "arrow.down.circle").font(.caption).foregroundColor(Theme.accent)
-                            } else {
-                                Button { model.download() } label: { Label("Herunterladen · WLAN", systemImage: "arrow.down.circle.fill") }.font(.caption.bold())
-                            }
-                        }
-                        if model.isOffline { Label("Offline-Wiedergabe", systemImage: "checkmark.icloud").font(.caption).foregroundColor(Theme.accent) }
-                        if let notice = model.recoveryMessage { Text(notice).font(.caption).foregroundColor(Theme.accent).multilineTextAlignment(.center) }
-                        if model.error != nil {
-                            HStack { Button("Erneut versuchen") { model.retry() }; if !model.isOffline { Button("Quelle wechseln") { model.chooseHost() } } }.font(.caption.bold())
-                        }
-                        if let next = model.nextEpisode {
-                            HStack {
-                                Button { model.playNext() } label: { Label("Nächste Folge · \(next.number)", systemImage: "forward.end.fill") }
-                                Spacer()
-                                if let seconds = model.countdown {
-                                    Text("\(seconds) s").monospacedDigit()
-                                    Button("Abbrechen") { model.cancelCountdown() }
-                                }
-                            }.font(.caption.bold()).foregroundColor(Theme.accent)
-                        }
-                        if let message = model.nextEpisodeError {
-                            Button(message + " Erneut versuchen") { model.loadNextEpisode() }.font(.caption2)
-                        }
-                        if let time = model.savedLabel { Label(time, systemImage: "checkmark.circle.fill").foregroundColor(Theme.accent).font(.caption.monospacedDigit()) }
-                        Text(model.error ?? model.status).font(.caption).foregroundColor(.secondary).multilineTextAlignment(.center)
-                        if !model.nativeReady && !model.isOffline {
-                            HStack {
-                                Image(systemName: model.adBlockEnabled ? "shield.lefthalf.filled" : "shield.slash")
-                                Text(model.blockerStatus).font(.caption2)
-                                Spacer()
-                                Button(model.adBlockEnabled ? "Ohne Blocker neu laden" : "Blocker aktivieren") { model.setAdBlockEnabled(!model.adBlockEnabled) }.font(.caption2)
-                            }.foregroundColor(Theme.accent)
-                        }
-                        if model.player != nil && !model.isOffline { Button("Webplayer verwenden") { model.useWebPlayer() }.font(.caption) }
-                    }.padding(12).frame(maxWidth: .infinity).background(Theme.panel)
                 }
-            }.background(Theme.background)
-                .navigationTitle("Folge \(model.request.episode.number)").navigationBarTitleDisplayMode(.inline)
+            }.background((theater ? Color.black : Theme.background).ignoresSafeArea())
+                .navigationTitle(model.choosingHost ? "Quelle wählen" : "")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(theater ? .hidden : .visible, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .navigationBarLeading) {
-                        if !model.choosingHost && !model.isOffline { Button("Quelle") { model.chooseHost() } }
+                        Button { model.finish(); dismiss() } label: { Image(systemName: "chevron.down").font(.body.bold()) }.accessibilityLabel("Player schließen")
                     }
-                    ToolbarItem(placement: .navigationBarTrailing) { Button("Fertig") { model.finish(); dismiss() } }
+                    ToolbarItem(placement: .principal) {
+                        if !model.choosingHost {
+                            VStack(spacing: 0) {
+                                Text(model.request.anime.title).font(.subheadline.bold()).lineLimit(1)
+                                Text("Folge \(model.request.episode.number)").font(.caption2).foregroundColor(Theme.muted)
+                            }
+                        }
+                    }
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        if model.choosingHost && model.selectedHost != nil { Button("Zurück") { model.select(model.selectedHost, remember: false) } }
+                    }
                 }
+                .statusBarHidden(theater)
                 .alert("Download", isPresented: Binding(get: { downloads.storageError != nil }, set: { if !$0 { downloads.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(downloads.storageError ?? "") }
-                .task { await model.loadHosts() }
+                .task { PlaybackCenter.shared.activate(model); await model.loadHosts() }
                 .onChange(of: phase) { if $0 != .active { model.checkpoint(); model.cancelCountdown() } }
+                // Picture in Picture continues in a small window while the viewer keeps browsing.
+                .onChange(of: model.inPictureInPicture) { if $0 { dismiss() } }
                 // Covering this view (AVKit fullscreen) is not closing the playback session.
                 .onDisappear { model.checkpoint() }
                 .background(PlaybackLifetime(model: model).frame(width: 0, height: 0))
-        }.tint(Theme.accent)
+        }.tint(Theme.accent).preferredColorScheme(.dark)
+    }
+
+    // MARK: Video stage
+    private var stage: some View {
+        ZStack {
+            Color.black
+            PlayerWebView(webView: model.webView).opacity(model.nativeReady || model.preparing ? 0 : 1)
+            if model.preparing { loadingCard }
+            if model.nativeReady, let player = model.player { NativePlayerView(model: model, player: player) }
+            if model.nativeReady { overlays }
+        }.clipped()
+    }
+    private var loadingCard: some View {
+        ZStack {
+            AnimeArtwork(anime: model.request.anime).blur(radius: 28).opacity(0.45)
+            LinearGradient(colors: [.black.opacity(0.2), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+            VStack(spacing: 14) {
+                ProgressView().controlSize(.large).tint(.white)
+                Text(model.status).font(.footnote.weight(.semibold)).multilineTextAlignment(.center).foregroundColor(.white.opacity(0.85))
+                HStack(spacing: 8) {
+                    if let host = model.selectedHost { Text("\(host.name) · \(host.language)") }
+                    TimelineView(.periodic(from: model.startedAt, by: 1)) { context in
+                        Text("· \(max(0, Int(context.date.timeIntervalSince(model.startedAt)))) s").monospacedDigit()
+                    }
+                }.font(.caption).foregroundColor(Theme.muted)
+            }.padding(24)
+        }
+    }
+    /// Streaming-app style buttons above the AVKit controls.
+    private var overlays: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 10) {
+                Spacer()
+                if model.countdown == nil && model.playhead < 300 {
+                    Button { model.skip(85) } label: { Label("Opening überspringen", systemImage: "forward.fill") }
+                        .buttonStyle(OverlayButtonStyle())
+                }
+                if let next = model.nextEpisode, model.countdown == nil, model.savedLabel != nil, lateInEpisode {
+                    Button { model.playNext() } label: { Label("Folge \(next.number)", systemImage: "forward.end.fill") }
+                        .buttonStyle(OverlayButtonStyle(prominent: true))
+                }
+                if let seconds = model.countdown, let next = model.nextEpisode {
+                    HStack(spacing: 10) {
+                        Button { model.playNext() } label: {
+                            HStack(spacing: 10) {
+                                ZStack {
+                                    Circle().stroke(.white.opacity(0.25), lineWidth: 3)
+                                    Circle().trim(from: 0, to: CGFloat(10 - seconds) / 10).stroke(.white, style: StrokeStyle(lineWidth: 3, lineCap: .round)).rotationEffect(.degrees(-90))
+                                        .animation(.linear(duration: 1), value: seconds)
+                                    Image(systemName: "play.fill").font(.caption2)
+                                }.frame(width: 26, height: 26)
+                                Text("Folge \(next.number) in \(seconds) s").monospacedDigit()
+                            }
+                        }.buttonStyle(OverlayButtonStyle(prominent: true))
+                        Button { model.cancelCountdown() } label: { Image(systemName: "xmark") }.buttonStyle(OverlayButtonStyle()).accessibilityLabel("Autoplay abbrechen")
+                    }
+                }
+            }.padding(.trailing, 16).padding(.bottom, theater ? 76 : 58)
+        }.animation(.easeInOut(duration: 0.25), value: model.countdown == nil)
+    }
+    private var lateInEpisode: Bool {
+        guard let duration = model.player?.currentItem?.duration.seconds, duration.isFinite, duration > 0 else { return false }
+        return model.playhead >= duration - 120
+    }
+
+    // MARK: Info panel
+    private var infoPanel: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(model.request.anime.title.uppercased()).font(.caption.bold()).tracking(1.5).foregroundColor(Theme.accentSoft).lineLimit(1)
+                    Text("Folge \(model.request.episode.number) · \(model.request.episode.title)").font(.title3.bold()).lineLimit(3)
+                    HStack(spacing: 8) {
+                        if model.isOffline { Chip(text: "Offline", icon: "arrow.down.circle.fill") }
+                        else if let host = model.selectedHost { Chip(text: "\(host.name) · \(host.language)", icon: model.nativeReady ? "play.tv.fill" : "globe") }
+                        if let time = model.savedLabel { Chip(text: time, icon: "checkmark.circle.fill") }
+                    }
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        if let next = model.nextEpisode {
+                            ActionTile(title: "Folge \(next.number)", icon: "forward.end.fill", prominent: true) { model.playNext() }
+                        }
+                        if !model.isOffline { ActionTile(title: "Quelle", icon: "rectangle.stack.fill") { model.chooseHost() } }
+                        downloadTile
+                        if model.nativeReady { ActionTile(title: "10 s zurück", icon: "gobackward.10") { model.skip(-10) } }
+                        if model.player != nil && !model.isOffline { ActionTile(title: "Webplayer", icon: "globe") { model.useWebPlayer() } }
+                    }
+                }
+                if let notice = model.recoveryMessage { NoticeView(text: notice, icon: "arrow.triangle.2.circlepath", tint: Theme.accentSoft) }
+                if let error = model.error {
+                    VStack(alignment: .leading, spacing: 10) {
+                        NoticeView(text: error, icon: "exclamationmark.triangle.fill", tint: .orange)
+                        HStack {
+                            Button("Erneut versuchen") { model.retry() }.buttonStyle(.borderedProminent)
+                            if !model.isOffline { Button("Quelle wechseln") { model.chooseHost() }.buttonStyle(.bordered) }
+                        }.font(.subheadline.bold())
+                    }
+                }
+                if let next = model.nextEpisode {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Als Nächstes").font(.headline)
+                        Button { model.playNext() } label: {
+                            HStack(spacing: 14) {
+                                AnimeArtwork(anime: model.request.anime).frame(width: 112, height: 63).clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .overlay(Image(systemName: "play.circle.fill").font(.title2).shadow(radius: 4))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("Folge \(next.number)").font(.caption.bold()).foregroundColor(Theme.accentSoft)
+                                    Text(next.title).font(.subheadline.bold()).lineLimit(2).multilineTextAlignment(.leading)
+                                }
+                                Spacer(minLength: 0)
+                            }.padding(10).loungeCard()
+                        }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
+                        Toggle("Automatisch weiterschauen", isOn: Binding(get: { model.autoNext }, set: { model.setAutoNext($0) })).font(.subheadline).tint(Theme.accent)
+                    }
+                } else if let message = model.nextEpisodeError {
+                    Button(message + " Erneut versuchen") { model.loadNextEpisode() }.font(.caption)
+                }
+                if !model.nativeReady && !model.isOffline && !model.preparing {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(model.status).font(.footnote).foregroundColor(Theme.muted)
+                        HStack {
+                            Label(model.blockerStatus, systemImage: model.adBlockEnabled ? "shield.lefthalf.filled" : "shield.slash").font(.caption)
+                            Spacer()
+                            Button(model.adBlockEnabled ? "Ohne Blocker laden" : "Blocker an") { model.setAdBlockEnabled(!model.adBlockEnabled) }.font(.caption.bold())
+                        }.foregroundColor(Theme.accentSoft)
+                    }.padding(14).loungeCard()
+                }
+            }.padding(20).foregroundColor(.white)
+        }.background(Theme.background)
+    }
+    @ViewBuilder private var downloadTile: some View {
+        if model.isOffline {
+            EmptyView()
+        } else if let existing = downloads.existing(model.request) {
+            ActionTile(title: existing.state == .ready ? "Gespeichert" : "Lädt …", icon: existing.state == .ready ? "checkmark.circle.fill" : "arrow.down.circle.dotted") {}
+                .disabled(true)
+        } else if model.nativeReady {
+            ActionTile(title: "Download", icon: "arrow.down.circle") { model.download() }
+        } else {
+            // Downloads need a direct video link, which only the iOS player exposes.
+            ActionTile(title: "Download", icon: "arrow.down.circle") {}.disabled(true).opacity(0.4)
+                .accessibilityHint("Nur verfügbar, wenn die Folge im iOS-Player läuft")
+        }
+    }
+
+    // MARK: Source picker
+    private var hostPicker: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(model.request.anime.title.uppercased()).font(.caption.bold()).tracking(1.5).foregroundColor(Theme.accentSoft)
+                    Text("Folge \(model.request.episode.number) · \(model.request.episode.title)").font(.title2.bold())
+                    Text("Deine Wahl gilt auch für die nächsten Folgen.").font(.subheadline).foregroundColor(Theme.muted)
+                }
+                if model.loadingHosts { ProgressView("Quellen werden gesucht …").frame(maxWidth: .infinity).padding(30) }
+                ForEach(Array(Set(model.hosts.map(\.language))).sorted(), id: \.self) { language in
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label(language, systemImage: "character.bubble.fill").font(.caption.bold()).foregroundColor(Theme.muted)
+                        ForEach(model.hosts.filter { $0.language == language }) { host in
+                            let current = model.selectedHost?.id == host.id
+                            Button { model.select(host) } label: {
+                                HStack(spacing: 14) {
+                                    Text(String(host.name.prefix(1))).font(.headline.bold()).frame(width: 42, height: 42)
+                                        .background(current ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.panelHigh)).clipShape(RoundedRectangle(cornerRadius: 12))
+                                    Text(host.name).font(.headline)
+                                    Spacer()
+                                    Image(systemName: current ? "checkmark.circle.fill" : "play.fill").foregroundColor(current ? Theme.accent : Theme.muted)
+                                }.padding(12).loungeCard()
+                                    .overlay(RoundedRectangle(cornerRadius: 22).stroke(current ? Theme.accent.opacity(0.6) : .clear))
+                            }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
+                        }
+                    }
+                }
+                if let error = model.error {
+                    NoticeView(text: error, icon: "exclamationmark.triangle.fill", tint: .orange)
+                    Button("Erneut versuchen") { Task { await model.loadHosts() } }.buttonStyle(.borderedProminent)
+                }
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Wiedergabe").font(.headline)
+                    Toggle("Nächste Folge automatisch", isOn: Binding(get: { model.autoNext }, set: { model.setAutoNext($0) }))
+                    Toggle("Werbeblocker", isOn: Binding(get: { model.adBlockEnabled }, set: { model.setAdBlockEnabled($0) }))
+                    Text("Blockiert bekannte Werbeserver. Lädt eine Quelle nicht, probier sie ohne Blocker.").font(.caption).foregroundColor(Theme.muted)
+                }.tint(Theme.accent).padding(16).loungeCard()
+            }.padding(20).foregroundColor(.white)
+        }.background(Theme.background)
+    }
+}
+private struct OverlayButtonStyle: ButtonStyle {
+    var prominent = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.font(.subheadline.bold()).foregroundColor(prominent ? .black : .white)
+            .padding(.horizontal, 16).padding(.vertical, 11)
+            .background(prominent ? AnyShapeStyle(Color.white) : AnyShapeStyle(.ultraThinMaterial))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(prominent ? 0 : 0.25)))
+            .scaleEffect(configuration.isPressed ? 0.96 : 1).opacity(configuration.isPressed ? 0.85 : 1)
+    }
+}
+private struct ActionTile: View {
+    let title: String
+    let icon: String
+    var prominent = false
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 20, weight: .semibold))
+                Text(title).font(.caption.bold()).lineLimit(1)
+            }.frame(minWidth: 84).padding(.vertical, 14).padding(.horizontal, 10)
+                .background(prominent ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.panel))
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.stroke))
+        }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
+    }
+}
+struct Chip: View {
+    let text: String
+    let icon: String
+    var body: some View {
+        Label(text, systemImage: icon).font(.caption.weight(.semibold).monospacedDigit()).lineLimit(1)
+            .padding(.horizontal, 10).padding(.vertical, 6).background(Theme.panelHigh).clipShape(Capsule()).foregroundColor(Theme.accentSoft)
+    }
+}
+struct NoticeView: View {
+    let text: String
+    let icon: String
+    let tint: Color
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon).foregroundColor(tint)
+            Text(text).font(.footnote).foregroundColor(.white.opacity(0.85)).fixedSize(horizontal: false, vertical: true)
+        }.padding(12).frame(maxWidth: .infinity, alignment: .leading).background(tint.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 12))
     }
 }
 /// SwiftUI dismantles this owner only when the playback screen is actually removed.
@@ -526,9 +775,9 @@ struct PlaybackView: View {
         init(_ model: PlayerModel) { self.model = model }
     }
     func makeCoordinator() -> Coordinator { Coordinator(model) }
-    func makeUIView(context: Context) -> UIView { UIView(frame: .zero) }
+    func makeUIView(context: Context) -> UIView { model.detached = false; return UIView(frame: .zero) }
     func updateUIView(_ view: UIView, context: Context) {}
-    static func dismantleUIView(_ view: UIView, coordinator: Coordinator) { coordinator.model.finish() }
+    static func dismantleUIView(_ view: UIView, coordinator: Coordinator) { coordinator.model.screenRemoved() }
 }
 private struct PlayerWebView: UIViewRepresentable {
     let webView: WKWebView
@@ -536,11 +785,13 @@ private struct PlayerWebView: UIViewRepresentable {
     func updateUIView(_ view: WKWebView, context: Context) {}
 }
 private struct NativePlayerView: UIViewControllerRepresentable {
+    let model: PlayerModel
     let player: AVPlayer
     func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
-        controller.player = player
-        controller.allowsPictureInPicturePlayback = true
+        // The model owns the controller so Picture in Picture survives closing this screen.
+        let controller = model.playerController
+        controller.removeFromParent()
+        if controller.player !== player { controller.player = player }
         return controller
     }
     func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {

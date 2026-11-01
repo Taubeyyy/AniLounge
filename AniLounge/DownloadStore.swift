@@ -22,8 +22,8 @@ struct EpisodeDownload: Codable, Identifiable {
 /// All delegate callbacks use the main queue, matching the store's isolation.
 @MainActor final class DownloadStore: NSObject, ObservableObject, URLSessionDownloadDelegate, AVAssetDownloadDelegate {
     static let shared = DownloadStore()
-    static let fileSessionID = "app.anilounge.download.files.v1"
-    static let hlsSessionID = "app.anilounge.download.hls.v1"
+    static let fileSessionID = "app.anilounge.download.files.v2"
+    static let hlsSessionID = "app.anilounge.download.hls.v2"
     @Published private(set) var items: [EpisodeDownload] = []
     @Published var storageError: String?
     private let home: URL
@@ -56,7 +56,10 @@ struct EpisodeDownload: Codable, Identifiable {
         let config = URLSessionConfiguration.background(withIdentifier: identifier)
         config.sessionSendsLaunchEvents = true
         config.isDiscretionary = false
-        config.allowsCellularAccess = false
+        // Viewers expect downloads to start right away, also on mobile data.
+        config.allowsCellularAccess = true
+        config.allowsExpensiveNetworkAccess = true
+        config.allowsConstrainedNetworkAccess = true
         config.waitsForConnectivity = true
         return config
     }
@@ -100,7 +103,7 @@ struct EpisodeDownload: Codable, Identifiable {
     func existing(_ request: PlaybackRequest) -> EpisodeDownload? {
         items.first { $0.profileID == request.profileID && $0.episode.path == request.episode.path && ($0.state == .downloading || $0.state == .checking || ($0.state == .ready && localURL(for: $0) != nil)) }
     }
-    func enqueue(request: PlaybackRequest, asset: AVURLAsset, cookies: [HTTPCookie], source: String) {
+    func enqueue(request: PlaybackRequest, asset: AVURLAsset, cookies: [HTTPCookie], headers: [String: String] = [:], source: String) {
         guard canSave, existing(request) == nil, asset.url.scheme == "https" else { return }
         start()
         let ext = asset.url.pathExtension.lowercased()
@@ -111,6 +114,7 @@ struct EpisodeDownload: Codable, Identifiable {
         let entry = EpisodeDownload(id: UUID(), anime: request.anime, episode: request.episode, profileID: request.profileID, source: source, isHLS: hls)
         let task: URLSessionTask
         if hls {
+            // Reuse the playing asset: it already carries the hoster's cookies and referer.
             guard let download = streams.makeAssetDownloadTask(asset: asset, assetTitle: request.anime.title + " · " + request.episode.number, assetArtworkData: nil, options: nil) else {
                 storageError = "Dieser HLS-Stream lässt sich nicht herunterladen."; return
             }
@@ -118,7 +122,7 @@ struct EpisodeDownload: Codable, Identifiable {
         } else {
             var urlRequest = URLRequest(url: asset.url)
             // Only cookies scoped to this asset were supplied by PlayerModel.
-            urlRequest.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies)
+            urlRequest.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies).merging(headers) { current, _ in current }
             task = files.downloadTask(with: urlRequest)
         }
         task.taskDescription = entry.id.uuidString

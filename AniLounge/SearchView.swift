@@ -17,24 +17,23 @@ struct SearchView: View {
                     Image(systemName: "magnifyingglass").foregroundColor(Theme.accent)
                     TextField("Deinen nächsten Anime finden", text: $query).textInputAutocapitalization(.never)
                     if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Suche löschen") }
-                }.padding(18).loungeCard().padding(.top, 12)
+                }.padding(16).loungeCard().padding(.top, 12)
                 if let error { ProblemView(message: error) { Task { await load() } } }
-                else if loading { ProgressView("Katalog wird geladen …").frame(maxWidth: .infinity).padding(40) }
+                else if loading {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12)], spacing: 18) {
+                        ForEach(0..<12, id: \.self) { _ in RoundedRectangle(cornerRadius: 12).fill(Theme.panel).aspectRatio(2 / 3, contentMode: .fit).shimmer() }
+                    }.padding(.top, 16)
+                }
                 else {
                     Text("\(results.count) Anime\(query.isEmpty ? " im Katalog" : " gefunden")")
-                        .font(.footnote).foregroundColor(.secondary).padding(.vertical, 16)
+                        .font(.footnote.weight(.semibold)).foregroundColor(Theme.muted).padding(.top, 6)
                     if results.isEmpty {
                         Text("Keine Treffer. Versuche einen anderen Titel oder den japanischen Namen.").foregroundColor(.secondary).padding(.vertical, 36)
                     }
-                    ForEach(results) { anime in
-                        NavigationLink { DetailView(anime: anime) } label: {
-                            HStack(spacing: 14) {
-                                AnimeArtwork(anime: anime).frame(width: 56, height: 78).clipShape(RoundedRectangle(cornerRadius: 12))
-                                Text(anime.title).font(.subheadline.weight(.semibold)).foregroundColor(.white).multilineTextAlignment(.leading)
-                                Spacer(minLength: 6)
-                                Image(systemName: "chevron.right").font(.caption).foregroundColor(.secondary)
-                            }.padding(12).loungeCard()
-                        }.buttonStyle(.plain)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12, alignment: .top)], spacing: 18) {
+                        ForEach(results) { anime in
+                            NavigationLink { DetailView(anime: anime) } label: { GridPoster(anime: anime) }.buttonStyle(LoungePressStyle())
+                        }
                     }
                 }
             }.padding(.horizontal, 20)
@@ -52,6 +51,25 @@ struct SearchView: View {
         catch { if !Task.isCancelled { self.error = error.localizedDescription } }
     }
 }
+/// Poster that sizes itself to its grid column.
+struct GridPoster: View {
+    let anime: Anime
+    @EnvironmentObject private var library: LibraryStore
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Color.clear.aspectRatio(2 / 3, contentMode: .fit)
+                .overlay(AnimeArtwork(anime: anime))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.stroke))
+                .overlay(alignment: .topTrailing) {
+                    if library.contains(anime) {
+                        Image(systemName: "bookmark.fill").font(.caption2.bold()).padding(5).background(Theme.accent).clipShape(Circle()).padding(5)
+                    }
+                }
+            Text(anime.title).font(.caption.weight(.semibold)).lineLimit(2).frame(height: 32, alignment: .topLeading).foregroundColor(.white)
+        }
+    }
+}
 struct SavedView: View {
     @EnvironmentObject private var library: LibraryStore
     var body: some View {
@@ -63,10 +81,10 @@ struct SavedView: View {
                     Text("Tippe bei einem Anime auf „Watchlist“, um ihn hier zu speichern.").foregroundColor(.secondary).multilineTextAlignment(.center)
                 }.padding(36).padding(.top, 80)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 16)], spacing: 22) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12, alignment: .top)], spacing: 18) {
                     ForEach(library.favorites) { anime in
-                        NavigationLink { DetailView(anime: anime) } label: { PosterCard(anime: anime, width: 140) }
-                            .buttonStyle(.plain)
+                        NavigationLink { DetailView(anime: anime) } label: { GridPoster(anime: anime) }
+                            .buttonStyle(LoungePressStyle())
                             .contextMenu { Button(role: .destructive) { library.toggle(anime) } label: { Label("Aus Liste entfernen", systemImage: "bookmark.slash") } }
                     }
                 }.padding(20)

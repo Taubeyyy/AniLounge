@@ -12,7 +12,7 @@ struct DownloadsView: View {
             LazyVStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Deine Folgen. Überall.").font(.largeTitle.bold())
-                    Text("Downloads laufen über WLAN. Starte eine Folge und tippe unter dem nativen Player auf Herunterladen.").font(.subheadline).foregroundColor(.secondary)
+                    Text("Starte eine Folge und tippe im Player auf „Download“. Das klappt, sobald die Folge im iOS-Player läuft.").font(.subheadline).foregroundColor(.secondary)
                 }.padding(.vertical, 12)
                 if entries.isEmpty {
                     VStack(spacing: 14) {
@@ -35,7 +35,7 @@ struct DownloadsView: View {
                         if entry.state == .downloading {
                             ProgressView(value: entry.progress).tint(Theme.accent)
                             HStack {
-                                Text(entry.progress > 0 ? "\(Int(entry.progress * 100)) %" : "Wartet auf WLAN / Quelle …")
+                                Text(entry.progress > 0 ? "\(Int(entry.progress * 100)) %" : "Verbindung zur Quelle …")
                                 Spacer()
                                 if entry.bytes > 0 { Text(ByteCountFormatter.string(fromByteCount: entry.bytes, countStyle: .file)) }
                                 Button("Abbrechen") { downloads.cancel(entry.id) }
