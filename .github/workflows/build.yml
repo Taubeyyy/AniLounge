@@ -50,11 +50,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Eigener Player im Crunchyroll-Stil: Tippen blendet die Steuerung ein, Doppeltippen links/rechts springt 10 s, Zeitleiste mit Puffer, Vollbild-Knopf, Bildschirm füllen, Geschwindigkeit, Bild-in-Bild und Steuerung im Sperrbildschirm.
-          Behoben: weißer Bildschirm nach dem Drehen. Die App bleibt beim Stöbern im Hochformat, nur der Player dreht sich.
-          VOE startet ohne Tippen (JW-Player-Start) und läuft öfter im iOS-Player (Master-Playlist wird erkannt).
-          Neuer Tab „Ich“ mit Profilwechsel, Statistik, Verlauf und Einstellungen: Autoplay, Opening automatisch überspringen, Geschwindigkeit, Datensparmodus, bevorzugte Sprache und Anbieter, Werbeblocker, Downloads nur über WLAN, Speicher, Cache und Zurücksetzen.
+          Behoben: Das Video war im Player zu klein (im Querformat in einem Quadrat). Jetzt füllt es im Querformat den ganzen Bildschirm und im Hochformat die volle Breite.
+          Kompaktere Steuerung im Hochformat, im Querformat mit Abstand zur Notch.
+          Alles aus 0.9.0: eigener Player, Hochformat beim Stöbern, VOE-Autostart, Tab „Ich“ mit Einstellungen.
           Mit TrollStore als Update installieren, um lokale Daten zu behalten.
           NOTES
-          gh release create v0.9.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.0" --notes-file build/release-notes.md
+          gh release create v0.9.1 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.1" --notes-file build/release-notes.md
 

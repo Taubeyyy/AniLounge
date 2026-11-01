@@ -668,14 +668,14 @@ struct PlaybackView: View {
             // One stable hierarchy for every orientation: the video surface and the web view are
             // never rebuilt when rotating, which used to leave a white, detached player behind.
             ZStack {
-                VStack(spacing: 0) {
-                    if !theater { topBar }
-                    stage
-                        .frame(maxWidth: .infinity, maxHeight: theater ? .infinity : nil)
-                        .aspectRatio(theater ? nil : 16 / 9, contentMode: .fit)
-                        .ignoresSafeArea(edges: theater ? .all : [])
-                    if !theater { infoPanel }
-                }
+                // Explicit sizes: full screen in landscape, a 16:9 band in portrait.
+                GeometryReader { geo in
+                    VStack(spacing: 0) {
+                        if !theater { topBar }
+                        stage.frame(width: geo.size.width, height: theater ? geo.size.height : (geo.size.width * 9 / 16).rounded())
+                        if !theater { infoPanel }
+                    }
+                }.ignoresSafeArea(edges: theater ? .all : [])
                 if model.choosingHost {
                     VStack(spacing: 0) { topBar; hostPicker }.background(Theme.background.ignoresSafeArea())
                 }
@@ -914,7 +914,7 @@ private struct PlayerControls: View {
             }
             if visible { chrome.transition(.opacity) }
             if !visible && model.isBuffering { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
-            SkipOverlay(model: model, clock: clock, bottom: visible ? (theater ? 96 : 66) : (theater ? 30 : 12))
+            SkipOverlay(model: model, clock: clock, bottom: visible ? (theater ? 96 : 58) : (theater ? 30 : 10))
             if let flash {
                 Text(flash.text).font(.headline.bold()).padding(.horizontal, 16).padding(.vertical, 10)
                     .background(.ultraThinMaterial).clipShape(Capsule())
@@ -977,27 +977,27 @@ private struct PlayerControls: View {
                     }
                     Spacer(minLength: 0)
                     if model.pipPossible {
-                        Button { model.togglePictureInPicture() } label: { Image(systemName: "pip.enter").font(.title3.weight(.semibold)).frame(width: 40, height: 40) }
+                        Button { model.togglePictureInPicture() } label: { Image(systemName: "pip.enter").font(theater ? .title3.weight(.semibold) : .body.weight(.semibold)).frame(width: 38, height: 38) }
                             .accessibilityLabel("Bild in Bild")
                     }
-                    Button(action: more) { Image(systemName: "gearshape.fill").font(.title3.weight(.semibold)).frame(width: 40, height: 40) }
+                    Button(action: more) { Image(systemName: "gearshape.fill").font(theater ? .title3.weight(.semibold) : .body.weight(.semibold)).frame(width: 38, height: 38) }
                         .accessibilityLabel("Wiedergabe-Einstellungen")
                 }
                 Spacer(minLength: 0)
                 bottomBar
-            }.padding(.horizontal, theater ? 36 : 12).padding(.top, theater ? 14 : 6).padding(.bottom, theater ? 18 : 6)
-            HStack(spacing: theater ? 72 : 48) {
-                Button { act { model.skip(-10) } } label: { Image(systemName: "gobackward.10").font(.system(size: theater ? 34 : 28, weight: .semibold)) }
+            }.padding(.horizontal, theater ? 56 : 10).padding(.top, theater ? 16 : 2).padding(.bottom, theater ? 18 : 2)
+            HStack(spacing: theater ? 72 : 44) {
+                Button { act { model.skip(-10) } } label: { Image(systemName: "gobackward.10").font(.system(size: theater ? 34 : 24, weight: .semibold)) }
                     .accessibilityLabel("10 Sekunden zurück")
                 ZStack {
                     if model.isBuffering { ProgressView().controlSize(.large).tint(.white) }
                     else {
                         Button { act { model.togglePlay() } } label: {
-                            Image(systemName: model.isPlaying ? "pause.fill" : "play.fill").font(.system(size: theater ? 48 : 40, weight: .bold))
+                            Image(systemName: model.isPlaying ? "pause.fill" : "play.fill").font(.system(size: theater ? 48 : 34, weight: .bold))
                         }.accessibilityLabel(model.isPlaying ? "Pause" : "Abspielen")
                     }
-                }.frame(width: 64, height: 64)
-                Button { act { model.skip(10) } } label: { Image(systemName: "goforward.10").font(.system(size: theater ? 34 : 28, weight: .semibold)) }
+                }.frame(width: 60, height: 60)
+                Button { act { model.skip(10) } } label: { Image(systemName: "goforward.10").font(.system(size: theater ? 34 : 24, weight: .semibold)) }
                     .accessibilityLabel("10 Sekunden vor")
             }.shadow(color: .black.opacity(0.4), radius: 8)
         }.buttonStyle(LoungePressStyle())
@@ -1048,7 +1048,7 @@ private struct Scrubber: View {
                 Circle().fill(Theme.accent).frame(width: knob, height: knob).shadow(radius: 3)
                     .offset(x: width * played - knob / 2)
             }
-            .frame(height: 28).contentShape(Rectangle())
+            .frame(height: 24).contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { gesture in
                     if !dragging { dragging = true; UISelectionFeedbackGenerator().selectionChanged() }
@@ -1060,7 +1060,7 @@ private struct Scrubber: View {
                 })
             .animation(.easeOut(duration: 0.15), value: dragging)
         }
-        .frame(height: 28)
+        .frame(height: 24)
         .accessibilityElement()
         .accessibilityLabel("Wiedergabeposition")
         .accessibilityValue(EpisodeProgress.format(value))
