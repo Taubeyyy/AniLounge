@@ -110,6 +110,7 @@ final class PlayerSurfaceView: UIView {
     func download() {
         guard nativeReady, let asset = player?.currentItem?.asset as? AVURLAsset, !isOffline else { return }
         DownloadStore.shared.enqueue(request: request, asset: asset, cookies: downloadCookies, headers: downloadHeaders, source: selectedHost.map { "\($0.name) · \($0.language)" } ?? "Video")
+        if DownloadStore.shared.existing(request) != nil { showToast("Download gestartet") }
     }
     private var itemObservation: NSKeyValueObservation?
     private var endObservation: NSObjectProtocol?

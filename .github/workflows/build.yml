@@ -50,10 +50,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Behoben: Das Video war im Player zu klein (im Querformat in einem Quadrat). Jetzt füllt es im Querformat den ganzen Bildschirm und im Hochformat die volle Breite.
-          Kompaktere Steuerung im Hochformat, im Querformat mit Abstand zur Notch.
-          Alles aus 0.9.0: eigener Player, Hochformat beim Stöbern, VOE-Autostart, Tab „Ich“ mit Einstellungen.
+          Feinschliff: Bilder blenden weich ein, das Kopfbild der Detailseite dehnt sich beim Runterziehen, kurze Bestätigungen bei Watchlist und Downloads.
+          Downloads neu gestaltet: Vorschaubild, Fortschrittsring, Speicherübersicht und Optionen pro Folge.
+          Watchlist sortierbar (zuletzt hinzugefügt / A–Z), Suche merkt sich die letzten Suchbegriffe und schließt die Tastatur beim Scrollen.
           Mit TrollStore als Update installieren, um lokale Daten zu behalten.
           NOTES
-          gh release create v0.9.1 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.1" --notes-file build/release-notes.md
+          gh release create v0.9.2 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.2" --notes-file build/release-notes.md
 

@@ -27,6 +27,13 @@ import AniCore
         } catch { storageError = error.localizedDescription }
     }
     func contains(_ anime: Anime) -> Bool { favorites.contains { $0.id == anime.id } }
+    /// Watchlist toggle with haptic and a short confirmation.
+    func toggleWatchlist(_ anime: Anime) {
+        let adding = !contains(anime)
+        toggle(anime)
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        ToastCenter.shared.show(adding ? "Zur Watchlist hinzugefügt" : "Von der Watchlist entfernt", icon: adding ? "bookmark.fill" : "bookmark.slash")
+    }
     func toggle(_ anime: Anime) { change { $0.update(profile.id) { $0.toggleFavorite(anime) } } }
     func opened(_ episode: Episode, anime: Anime) { change { $0.update(profile.id) { $0.opened(episode, anime: anime) } } }
     func clearHistory() { change { $0.update(profile.id) { $0.clearHistory() } } }

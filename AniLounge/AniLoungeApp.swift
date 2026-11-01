@@ -26,6 +26,7 @@ struct RootView: View {
         .toolbar(.hidden, for: .tabBar)
         .safeAreaInset(edge: .bottom, spacing: 0) { LoungeTabBar(tabs: tabs, selected: $selected) }
         .id(library.profile.id)
+        .overlay(alignment: .top) { ToastHost() }
         // Restoring a Picture in Picture window brings its player back from anywhere in the app.
         .fullScreenCover(item: $playback.restored) { PlaybackView(model: $0) }
         .alert("Speichern nicht möglich", isPresented: Binding(get: { library.storageError != nil }, set: { if !$0 { library.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(library.storageError ?? "") }
@@ -150,11 +151,12 @@ struct Artwork: View {
             ZStack {
                 LinearGradient(colors: [Theme.accent.opacity(0.25), Theme.panel], startPoint: .topLeading, endPoint: .bottomTrailing)
                 if let image = loader.image {
-                    Image(uiImage: image).resizable().scaledToFill()
+                    Image(uiImage: image).resizable().scaledToFill().transition(.opacity)
                 } else {
                     Image(systemName: "sparkles").font(.largeTitle).foregroundColor(Theme.accent.opacity(0.35))
                 }
             }.frame(width: geo.size.width, height: geo.size.height).clipped()
+                .animation(.easeOut(duration: 0.3), value: loader.image != nil)
         }.task(id: url) { await loader.load(url) }.accessibilityHidden(true)
     }
 }

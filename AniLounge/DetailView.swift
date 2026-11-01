@@ -49,7 +49,14 @@ struct DetailView: View {
     }
 
     // MARK: Header
+    /// Stretches when pulled down, like streaming apps; scrolls normally otherwise.
     private var header: some View {
+        GeometryReader { geo in
+            let pull = max(0, geo.frame(in: .named("lounge.scroll")).minY)
+            headerContent.frame(width: geo.size.width, height: 420 + pull).clipped().offset(y: -pull)
+        }.frame(height: 420)
+    }
+    private var headerContent: some View {
         ZStack(alignment: .bottomLeading) {
             // AniWorld's backdrop fits the tall header; AniList banners are a fallback.
             Artwork(url: detail?.backdrop ?? extras?.banner ?? currentAnime.poster)
@@ -70,7 +77,7 @@ struct DetailView: View {
                     }
                 }
             }.padding(.horizontal, 20).padding(.bottom, 4)
-        }.frame(height: 420).clipped()
+        }
     }
 
     // MARK: Content
@@ -95,7 +102,7 @@ struct DetailView: View {
             }
             HStack(spacing: 0) {
                 ActionColumn(title: "Watchlist", icon: library.contains(currentAnime) ? "checkmark" : "plus") {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred(); library.toggle(currentAnime)
+                    library.toggleWatchlist(currentAnime)
                 }
                 if let trailer = extras?.trailer {
                     Link(destination: trailer) { ActionColumnLabel(title: "Trailer", icon: "play.rectangle") }.buttonStyle(LoungePressStyle())

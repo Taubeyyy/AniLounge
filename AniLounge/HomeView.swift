@@ -82,7 +82,7 @@ struct HeroView: View {
                         Label("Ansehen", systemImage: "play.fill").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 13)
                             .background(Color.white).foregroundColor(.black).clipShape(RoundedRectangle(cornerRadius: 10))
                     }.buttonStyle(LoungePressStyle())
-                    Button { UIImpactFeedbackGenerator(style: .light).impactOccurred(); library.toggle(anime) } label: {
+                    Button { library.toggleWatchlist(anime) } label: {
                         Label("Watchlist", systemImage: library.contains(anime) ? "checkmark" : "plus")
                             .font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 13)
                             .background(.ultraThinMaterial).foregroundColor(.white).clipShape(RoundedRectangle(cornerRadius: 10))

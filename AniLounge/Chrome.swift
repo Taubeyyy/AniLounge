@@ -197,3 +197,34 @@ struct SheetToggle: View {
         }.tint(Theme.accent).padding(.horizontal, 20).padding(.vertical, 7)
     }
 }
+
+// MARK: Toasts
+/// Short confirmations for actions anywhere in the app ("Zur Watchlist hinzugefügt").
+@MainActor final class ToastCenter: ObservableObject {
+    static let shared = ToastCenter()
+    struct Toast: Equatable { let id = UUID(); let text: String; let icon: String }
+    @Published private(set) var current: Toast?
+    func show(_ text: String, icon: String = "checkmark.circle.fill") {
+        let toast = Toast(text: text, icon: icon)
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { current = toast }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_800_000_000)
+            if current?.id == toast.id { withAnimation(.easeOut(duration: 0.25)) { current = nil } }
+        }
+    }
+}
+struct ToastHost: View {
+    @ObservedObject private var center = ToastCenter.shared
+    var body: some View {
+        ZStack {
+            if let toast = center.current {
+                Label(toast.text, systemImage: toast.icon).font(.subheadline.bold()).foregroundColor(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 11)
+                    .background(.ultraThinMaterial).background(Theme.panelHigh.opacity(0.6)).clipShape(Capsule())
+                    .overlay(Capsule().stroke(.white.opacity(0.12))).shadow(color: .black.opacity(0.35), radius: 16, y: 6)
+                    .padding(.top, 6).transition(.move(edge: .top).combined(with: .opacity))
+                    .id(toast.id).accessibilityAddTraits(.isStaticText)
+            }
+        }.allowsHitTesting(false)
+    }
+}
