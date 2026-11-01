@@ -1,8 +1,8 @@
 {
-  "version": "0.5.0",
-  "verified_date": "2026-10-31",
-  "source_commit": "5f5be72f8e9060ff1505fadd62af7cdaf5e4f975",
-  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41190845268",
+  "version": "0.6.0",
+  "verified_date": "2026-11-01",
+  "source_commit": "01ea8cfa18ee88c3c30576426b3157d5ba27a16e",
+  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41299762932",
   "swift_core_tests": 24,
   "javascript_tests": 8,
   "ios_simulator_tests": 6,
@@ -10,7 +10,7 @@
   "webkit_rule_compilation": "passed",
   "ios_build": "success",
   "ipa_validation": "passed",
-  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.5.0",
+  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.6.0",
   "ipa_bytes": 1243895,
   "downloads": {
     "implemented": [
@@ -37,5 +37,11 @@
   "build_warnings": [
     "Swift 5 build succeeds; URLSession delegate actor-isolation annotations require adjustment before a Swift 6 language-mode migration. Delegate queue is explicitly main.",
     "Existing SDK deprecation warnings"
+  ],
+  "not_verified_on_device_0_6": [
+    "Picture in Picture restore after closing the player",
+    "Hoster acceptance of referer/origin headers",
+    "Cellular downloads",
+    "Landscape theater layout on iPhone"
   ]
 }
