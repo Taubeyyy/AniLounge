@@ -27,6 +27,12 @@ public struct EpisodeProgress: Identifiable, Codable, Sendable {
         return min(1, max(0, seconds / duration))
     }
     public var timeLabel: String { Self.format(seconds) }
+    /// Watched, or close enough to the end that only credits remain (like streaming apps).
+    public var isFinished: Bool { completed || Self.finished(seconds: seconds, duration: duration) }
+    public static func finished(seconds: Double, duration: Double?) -> Bool {
+        guard let duration, duration.isFinite, duration >= 90, seconds.isFinite else { return false }
+        return seconds >= min(duration - 10, max(duration * 0.9, duration - 120))
+    }
     public static func format(_ seconds: Double) -> String {
         let value = Int(max(0, min(86400, seconds.isFinite ? seconds : 0)))
         return value >= 3600 ? String(format: "%d:%02d:%02d", value / 3600, value / 60 % 60, value % 60) : String(format: "%d:%02d", value / 60, value % 60)
@@ -44,7 +50,7 @@ public struct ProfileLibrary: Codable, Sendable {
         // The newest progress per anime decides whether it is still in progress.
         return progress.values.sorted { $0.updatedAt > $1.updatedAt }.filter {
             guard seen.insert($0.anime.id).inserted else { return false }
-            return !$0.completed && $0.seconds > 0
+            return !$0.isFinished && $0.seconds > 0
         }
     }
     public func latest(for anime: Anime) -> EpisodeProgress? {

@@ -8,10 +8,9 @@ struct DownloadsView: View {
     @State private var deleting: EpisodeDownload?
     private var entries: [EpisodeDownload] { downloads.items.filter { $0.profileID == library.profile.id } }
     var body: some View {
-        ScrollView {
+        LoungeScroll(title: "Downloads", largeTitle: true) {
             LazyVStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Deine Folgen. Überall.").font(.largeTitle.bold())
                     Text("Starte eine Folge und tippe im Player auf „Download“. Das klappt, sobald die Folge im iOS-Player läuft.").font(.subheadline).foregroundColor(.secondary)
                 }.padding(.vertical, 12)
                 if entries.isEmpty {
@@ -57,8 +56,8 @@ struct DownloadsView: View {
                     }.padding(18).loungeCard()
                 }
                 Text("MP4 und geeignete HLS-Streams. Nicht jede Quelle unterstützt Offline-Speicherung. Nach erzwungenem Beenden der App können Downloads abbrechen.").font(.caption).foregroundColor(.secondary).padding(.vertical)
-            }.padding(20)
-        }.background(Theme.background).navigationTitle("Downloads").navigationBarTitleDisplayMode(.inline)
+            }.padding(.horizontal, 20)
+        }
             .task { downloads.start() }
             .fullScreenCover(item: $playback) { PlaybackView(request: $0, library: library) }
             .confirmationDialog("Download löschen?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {

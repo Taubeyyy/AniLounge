@@ -2,6 +2,12 @@
 
 Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Apps inspirierten SwiftUI-Oberfläche. Zielgerät: iPhone 13 mit iOS 16.4.1 und bereits eingerichtetem TrollStore. Das Layout unterstützt auch iPad; die Installation dort benötigt einen eigenen kompatiblen Installationsweg.
 
+## Version 0.8.0
+
+- Aufgeräumte Oberfläche mit eigenen Kopfleisten, Staffel-Pills, Folgenliste mit Bildern und eigenen Bottom-Sheets.
+- „Opening überspringen“ und „Nächste Folge“ zur richtigen Zeit dank AniSkip; Staffel-Folgen direkt unter dem Player.
+- Autostart ohne extra Tippen bei Playern mit `preload="none"`; Folgen gelten im Abspann als gesehen.
+
 ## Version 0.7.0
 
 - Zusatzdaten über die IMDb-ID der AniWorld-Seite: Bewertung, Studio, Status, Trailer und nächster Sendetermin (AniList), Episodenbilder, Laufzeiten und Titel (ani.zip). Ohne Konto oder API-Schlüssel; fällt ein Dienst aus, fehlen nur die Zusätze.
@@ -27,7 +33,7 @@ Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Ap
 
 **Buildstatus:** Version 0.5.0 wurde mit 38 erfolgreichen Tests geprüft und als Ad-hoc-signierte IPA gebaut. Der aktuelle geprüfte Stand steht in `VALIDATION.json`. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
 
-[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.7.0/AniLounge.ipa) · [Release 0.7.0](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.7.0)
+[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.8.0/AniLounge.ipa) · [Release 0.8.0](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.8.0)
 
 [Builds und IPA-Artefakte](https://github.com/Taubeyyy/AniLounge/actions)
 

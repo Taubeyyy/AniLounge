@@ -5,6 +5,11 @@
     let primary = null;
     let lastSent = 0;
     const eligible = v => Number.isFinite(v.duration) && v.duration >= 90 && v.duration <= 86400;
+    const later = typeof setTimeout === 'function' ? setTimeout : null;
+    // Big play buttons of common hoster players. Only these controls are ever clicked, never links.
+    const PLAY_BUTTONS = '.vjs-big-play-button, .jw-display-icon-display, .plyr__control--overlaid, .fp-ui .fp-play, button[aria-label="Play"]';
+    const hasSource = v => !!(v.currentSrc || v.src || (typeof v.querySelector === 'function' && v.querySelector('source[src]')));
+    const playing = () => [...document.querySelectorAll('video')].some(v => !v.paused && v.readyState > 1);
     function direct(value) {
         try {
             const u = new URL(value, document.baseURI);
@@ -66,7 +71,16 @@
             const promise = v.play();
             if (promise && promise.catch) promise.catch(() => {});
         }
+        // Players with preload="none" never load metadata on their own: ask for it once.
+        function wake() {
+            const state = states.get(v);
+            if (!config.autoPlay || state.woken || v.readyState > 0 || !hasSource(v)) return;
+            state.woken = true;
+            try { if (v.preload === 'none') v.preload = 'metadata'; if (typeof v.load === 'function') v.load(); } catch (_) {}
+        }
         ['loadedmetadata', 'canplay', 'progress'].forEach(event => v.addEventListener(event, tryStart));
+        ['loadstart', 'suspend', 'emptied'].forEach(event => v.addEventListener(event, wake));
+        wake();
         v.addEventListener('timeupdate', () => { if (states.get(v).played) restore(v); report(v); });
         ['pause', 'ended'].forEach(event => v.addEventListener(event, () => report(v, true)));
         restore(v);
@@ -74,6 +88,25 @@
     }
     function scan() { document.querySelectorAll('video').forEach(attach); }
     scan();
+    // Fallbacks so the viewer never needs an extra tap: start a sourced video that still has
+    // no metadata, then press the player's own big play button if nothing runs yet.
+    if (config.autoPlay && later) {
+        later(() => {
+            if (primary || playing()) return;
+            document.querySelectorAll('video').forEach(v => {
+                const state = states.get(v);
+                if (!state || state.autoAttempted || v.readyState > 0 || !hasSource(v)) return;
+                state.autoAttempted = true;
+                const promise = v.play();
+                if (promise && promise.catch) promise.catch(() => {});
+            });
+        }, 1800);
+        later(() => {
+            if (primary || playing() || typeof document.querySelector !== 'function') return;
+            const button = document.querySelector(PLAY_BUTTONS);
+            if (button && !(button.closest && button.closest('a')) && typeof button.click === 'function') button.click();
+        }, 3600);
+    }
     new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
     window.addEventListener('pagehide', () => { if (primary) report(primary, true); });
     document.addEventListener('visibilitychange', () => { if (primary) report(primary, true); });

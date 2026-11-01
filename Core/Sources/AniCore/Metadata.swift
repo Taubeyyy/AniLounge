@@ -24,6 +24,21 @@ public struct EpisodeExtras: Sendable, Hashable {
     public let overview: String?
     public let runtime: Int?
     public let airDate: String?
+    /// MyAnimeList entry and its own episode number, used for AniSkip.
+    public var malID: Int? = nil
+    public var malEpisode: Int? = nil
+}
+/// Opening and ending intervals from AniSkip, in seconds of the episode.
+public struct SkipTimes: Sendable, Equatable {
+    public let opening: ClosedRange<Double>?
+    public let ending: ClosedRange<Double>?
+    /// Length of the video the times were measured on.
+    public let episodeLength: Double?
+    /// Times are only trusted when the playing video has about the same length.
+    public func fits(duration: Double?) -> Bool {
+        guard let duration, duration.isFinite, duration > 0, let episodeLength, episodeLength > 0 else { return true }
+        return abs(duration - episodeLength) <= 45
+    }
 }
 struct AniZipEpisode: Sendable {
     let season: Int?
@@ -45,17 +60,22 @@ public enum MetadataParser {
         (try object(data)["mappings"] as? [String: Any])?["anilist_id"] as? Int
     }
     static func episodes(fromAniZip data: Data) throws -> [AniZipEpisode] {
-        guard let episodes = try object(data)["episodes"] as? [String: Any] else { return [] }
-        return episodes.values.compactMap { value in
+        let json = try object(data)
+        guard let episodes = json["episodes"] as? [String: Any] else { return [] }
+        let mal = (json["mappings"] as? [String: Any])?["mal_id"] as? Int
+        return episodes.compactMap { key, value in
             guard let entry = value as? [String: Any] else { return nil }
             let titles = entry["title"] as? [String: Any]
             let title = [titles?["de"], titles?["en"], titles?["x-jat"]].compactMap { ($0 as? String)?.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
             let overview = (entry["overview"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            // The dictionary key is the episode number inside this AniList/MAL entry ("S1" for specials).
+            let relative = Int((entry["episode"] as? String) ?? key)
             return AniZipEpisode(season: entry["seasonNumber"] as? Int, number: entry["episodeNumber"] as? Int,
                                  absolute: entry["absoluteEpisodeNumber"] as? Int,
                                  extras: EpisodeExtras(title: title, image: secureURL(entry["image"]),
                                                        overview: overview?.isEmpty == false ? overview : nil,
-                                                       runtime: entry["runtime"] as? Int, airDate: entry["airDate"] as? String))
+                                                       runtime: entry["runtime"] as? Int, airDate: entry["airDate"] as? String,
+                                                       malID: relative == nil ? nil : mal, malEpisode: relative))
         }
     }
     public static func extras(fromAniList data: Data) throws -> AnimeExtras {
@@ -81,14 +101,18 @@ public enum MetadataParser {
                            nextAiring: (next?["airingAt"] as? Int).map { Date(timeIntervalSince1970: TimeInterval($0)) },
                            recommendations: recommendations)
     }
-    /// The next TV entry in the franchise, used to walk from season 1 to later seasons.
+    /// The next entry in the franchise. TV sequels win; specials and movies only bridge to
+    /// the next season (e.g. Dr. Stone: Stone Wars → Ryuusui → New World).
     public static func sequel(fromAniList data: Data) throws -> Int? {
         guard let media = (try object(data)["data"] as? [String: Any])?["Media"] as? [String: Any],
               let edges = (media["relations"] as? [String: Any])?["edges"] as? [[String: Any]] else { return nil }
-        return edges.first { edge in
-            guard edge["relationType"] as? String == "SEQUEL", let node = edge["node"] as? [String: Any] else { return false }
-            return node["type"] as? String == "ANIME" && ["TV", "TV_SHORT", "ONA"].contains(node["format"] as? String ?? "")
-        }.flatMap { ($0["node"] as? [String: Any])?["id"] as? Int }
+        let sequels = edges.compactMap { edge -> [String: Any]? in
+            guard edge["relationType"] as? String == "SEQUEL", let node = edge["node"] as? [String: Any], node["type"] as? String == "ANIME",
+                  node["format"] as? String != "MUSIC" else { return nil }
+            return node
+        }
+        let series = sequels.first { ["TV", "TV_SHORT", "ONA"].contains($0["format"] as? String ?? "") }
+        return (series ?? sequels.first)?["id"] as? Int
     }
     /// Picks the episodes of one AniWorld season, keyed by the episode number AniWorld shows.
     static func season(_ season: Int, from episodes: [AniZipEpisode], allowAbsolute: Bool) -> [String: EpisodeExtras] {
@@ -98,6 +122,23 @@ public enum MetadataParser {
             for episode in episodes { if let number = episode.absolute ?? episode.number { result[String(number)] = episode.extras } }
         }
         return result
+    }
+    public static func skipTimes(fromAniSkip data: Data) throws -> SkipTimes? {
+        let json = try object(data)
+        guard json["found"] as? Bool == true, let results = json["results"] as? [[String: Any]] else { return nil }
+        var opening: ClosedRange<Double>?, ending: ClosedRange<Double>?, length: Double?
+        for result in results {
+            guard let interval = result["interval"] as? [String: Any],
+                  let start = (interval["startTime"] as? NSNumber)?.doubleValue, let end = (interval["endTime"] as? NSNumber)?.doubleValue,
+                  start.isFinite, end.isFinite, start >= 0, end > start + 5, end - start < 400 else { continue }
+            switch result["skipType"] as? String {
+            case "op" where opening == nil: opening = start...end
+            case "ed" where ending == nil: ending = start...end
+            default: continue
+            }
+            if length == nil, let value = (result["episodeLength"] as? NSNumber)?.doubleValue, value > 0 { length = value }
+        }
+        return opening == nil && ending == nil ? nil : SkipTimes(opening: opening, ending: ending, episodeLength: length)
     }
     /// AniWorld's IMDb link, e.g. `tt0388629`.
     public static func validIMDb(_ value: String) -> String? {
@@ -109,20 +150,29 @@ public enum MetadataParser {
 
 public actor MetadataClient {
     public static let shared = MetadataClient()
+    private static let sequelKey = "metadata.sequels.v1"
     private let session: URLSession
+    private let defaults: UserDefaults
     private var anilistIDs: [String: Int] = [:]
     private var aniZip: [Int: [AniZipEpisode]] = [:]
-    private var sequels: [Int: Int?] = [:]
+    /// AniList relations rarely change; remembering them keeps later seasons fast and spares the rate limit.
+    private var sequels: [Int: Int] = [:]
     private var extras: [Int: AnimeExtras] = [:]
     private var seasons: [String: [String: EpisodeExtras]] = [:]
-    public init() {
+    private var skips: [String: SkipTimes?] = [:]
+    public init(defaults: UserDefaults = .standard) {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         config.requestCachePolicy = .useProtocolCachePolicy
         config.urlCache = URLCache(memoryCapacity: 8 * 1024 * 1024, diskCapacity: 40 * 1024 * 1024)
         session = URLSession(configuration: config)
+        self.defaults = defaults
+        // Stored as "id": next, where 0 means "no further season".
+        for (key, value) in (defaults.dictionary(forKey: Self.sequelKey) as? [String: Int]) ?? [:] { if let id = Int(key) { sequels[id] = value } }
     }
     private func fetch(_ request: URLRequest) async throws -> Data {
+        var request = request
+        request.setValue("AniLounge/0.8 (personal iOS client)", forHTTPHeaderField: "User-Agent")
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw AniError.unexpectedPage }
         guard (200...299).contains(http.statusCode) else { throw AniError.http(http.statusCode) }
@@ -158,10 +208,11 @@ public actor MetadataClient {
         return parsed
     }
     private func sequel(of id: Int) async throws -> Int? {
-        if let cached = sequels[id] { return cached }
+        if let cached = sequels[id] { return cached == 0 ? nil : cached }
         let data = try await aniList("query($id:Int){Media(id:$id){relations{edges{relationType node{id type format}}}}}", id: id)
         let next = try MetadataParser.sequel(fromAniList: data)
-        sequels[id] = next
+        sequels[id] = next ?? 0
+        defaults.set(Dictionary(uniqueKeysWithValues: sequels.map { (String($0.key), $0.value) }), forKey: Self.sequelKey)
         return next
     }
     public func extras(imdb: String) async throws -> AnimeExtras? {
@@ -183,15 +234,26 @@ public actor MetadataClient {
         var collected: [AniZipEpisode] = []
         var current: Int? = first
         var visited = Set<Int>()
-        while let id = current, visited.count < 10, visited.insert(id).inserted {
-            let entries = try await episodes(anilist: id)
+        while let id = current, visited.count < 14, visited.insert(id).inserted {
+            // A missing entry ends the walk; what was found so far is still useful.
+            guard let entries = try? await episodes(anilist: id) else { break }
             collected += entries
-            // Stop once later seasons appear; the requested season is complete.
             if season == 1 || entries.contains(where: { ($0.season ?? 0) > season }) { break }
-            current = try await sequel(of: id)
+            current = try? await sequel(of: id)
         }
         let result = MetadataParser.season(season, from: collected, allowAbsolute: season == 1)
         seasons[key] = result
+        return result
+    }
+    /// Opening/ending of one episode, or nil when AniSkip has no data for it.
+    public func skipTimes(for episode: EpisodeExtras) async -> SkipTimes? {
+        guard let mal = episode.malID, let number = episode.malEpisode, mal > 0, number > 0 else { return nil }
+        let key = "\(mal)#\(number)"
+        if let cached = skips[key] { return cached }
+        guard let url = URL(string: "https://api.aniskip.com/v2/skip-times/\(mal)/\(number)?types=op&types=ed&episodeLength=0") else { return nil }
+        // AniSkip answers 404 when nobody submitted times yet; that is a normal "no data".
+        let result = (try? await fetch(URLRequest(url: url))).flatMap { try? MetadataParser.skipTimes(fromAniSkip: $0) }
+        skips[key] = result
         return result
     }
 }

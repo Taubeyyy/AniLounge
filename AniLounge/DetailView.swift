@@ -1,5 +1,4 @@
 import SwiftUI
-
 import AniCore
 
 struct DetailView: View {
@@ -14,187 +13,169 @@ struct DetailView: View {
     @State private var loadingEpisodes = false
     @State private var playback: PlaybackRequest?
     @State private var editingProgress: Episode?
+    @State private var actionsFor: Episode?
     @State private var expanded = false
     @State private var extras: AnimeExtras?
     @State private var episodeExtras: [String: EpisodeExtras] = [:]
     @State private var similar: [Anime] = []
     private var currentAnime: Anime { detail?.anime ?? anime }
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                ZStack(alignment: .bottomLeading) {
-                    // AniWorld's backdrop fits the tall header; AniList banners are a fallback.
-                    Artwork(url: detail?.backdrop ?? extras?.banner ?? currentAnime.poster).blur(radius: detail?.backdrop == nil && extras?.banner == nil ? 18 : 0)
-                    LinearGradient(colors: [Theme.background.opacity(0.4), .clear, Theme.background.opacity(0.7), Theme.background], startPoint: .top, endPoint: .bottom)
-                    HStack(alignment: .bottom, spacing: 16) {
-                        Group { if let cover = extras?.cover { Artwork(url: cover) } else { AnimeArtwork(anime: currentAnime) } }
-                            .frame(width: 104, height: 156).clipShape(RoundedRectangle(cornerRadius: 12))
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.stroke)).shadow(color: .black.opacity(0.5), radius: 16, y: 8)
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(currentAnime.title).font(.system(size: 26, weight: .heavy, design: .rounded)).lineLimit(3).minimumScaleFactor(0.75)
-                            if let detail {
-                                Text(([detail.year] + detail.genres.prefix(3)).filter { !$0.isEmpty }.joined(separator: " · "))
-                                    .font(.caption.weight(.semibold)).foregroundColor(Theme.muted).lineLimit(2)
-                            }
-                            if let extras { ExtrasBadges(extras: extras) }
-                        }
-                    }.padding(.horizontal, 20).padding(.bottom, 8)
-                }.frame(height: 340).clipped()
+        LoungeScroll(title: currentAnime.title, underBar: true, threshold: 300) {
+            VStack(alignment: .leading, spacing: 0) {
+                header
                 if let detail {
                     detailContent(detail)
-                    if !similar.isEmpty { AnimeShelf(title: "Ähnliche Anime", items: similar).padding(.top, 12) }
+                    if !similar.isEmpty { AnimeShelf(title: "Ähnliche Anime", items: similar).padding(.top, 34) }
                 } else if let error {
                     ProblemView(message: error) { Task { await loadDetail() } }
-                } else { ProgressView("Anime wird geladen …").frame(maxWidth: .infinity).padding(32) }
-            }.padding(.bottom, 30)
+                } else { ProgressView().tint(Theme.accent).frame(maxWidth: .infinity).padding(40) }
+            }
+        } leading: {
+            BackButton()
+        } trailing: {
+            if let url = AniURL.page(anime.path) {
+                ShareLink(item: url) { CircleIcon(systemName: "square.and.arrow.up") }.accessibilityLabel("Teilen")
+            }
         }
-        .background(Theme.background.ignoresSafeArea()).navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
         .task { if detail == nil { await loadDetail() } }
         .task(id: selectedSeason) { if !selectedSeason.isEmpty { await loadSeason(selectedSeason) } }
         .task(id: detail?.imdb) { await loadExtras() }
         .task(id: (detail?.imdb ?? "") + selectedSeason) { await loadEpisodeExtras() }
         .fullScreenCover(item: $playback) { request in PlaybackView(request: request, library: library) }
         .sheet(item: $editingProgress) { episode in ProgressEditor(anime: currentAnime, episode: episode, profileID: library.profile.id).environmentObject(library) }
+        .loungeSheet(isPresented: Binding(get: { actionsFor != nil }, set: { if !$0 { actionsFor = nil } }), height: 250) {
+            if let episode = actionsFor { episodeActions(episode) }
+        }
     }
+
+    // MARK: Header
+    private var header: some View {
+        ZStack(alignment: .bottomLeading) {
+            // AniWorld's backdrop fits the tall header; AniList banners are a fallback.
+            Artwork(url: detail?.backdrop ?? extras?.banner ?? currentAnime.poster)
+                .blur(radius: detail?.backdrop == nil && extras?.banner == nil ? 20 : 0)
+            LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0), .init(color: .clear, location: 0.3),
+                                   .init(color: Theme.background.opacity(0.75), location: 0.7), .init(color: Theme.background, location: 1)],
+                           startPoint: .top, endPoint: .bottom)
+            HStack(alignment: .bottom, spacing: 16) {
+                Group { if let cover = extras?.cover { Artwork(url: cover) } else { AnimeArtwork(anime: currentAnime) } }
+                    .frame(width: 100, height: 150).clipShape(RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.stroke)).shadow(color: .black.opacity(0.5), radius: 16, y: 8)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(currentAnime.title).font(.system(size: 26, weight: .heavy, design: .rounded)).lineLimit(3).minimumScaleFactor(0.7)
+                    if let extras { ExtrasBadges(extras: extras) }
+                    if let detail {
+                        Text(([detail.year] + detail.genres.prefix(3)).filter { !$0.isEmpty }.joined(separator: " · "))
+                            .font(.caption.weight(.semibold)).foregroundColor(Theme.muted).lineLimit(2)
+                    }
+                }
+            }.padding(.horizontal, 20).padding(.bottom, 4)
+        }.frame(height: 420).clipped()
+    }
+
+    // MARK: Content
     private func detailContent(_ detail: AnimeDetail) -> some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 24) {
             if let action = primaryAction {
                 Button { open(action.episode) } label: {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
+                    VStack(spacing: 9) {
+                        HStack(spacing: 10) {
                             Image(systemName: "play.fill")
-                            Text(action.title).font(.headline)
-                            Spacer()
-                            if let label = action.detail { Text(label).font(.caption.monospacedDigit()).opacity(0.75) }
-                        }
+                            Text(action.title).font(.headline).lineLimit(1)
+                        }.frame(maxWidth: .infinity)
                         if let fraction = action.fraction {
-                            GeometryReader { geo in
-                                ZStack(alignment: .leading) {
-                                    Capsule().fill(.black.opacity(0.15))
-                                    Capsule().fill(Theme.accent).frame(width: geo.size.width * CGFloat(fraction))
-                                }
-                            }.frame(height: 4)
+                            HStack(spacing: 10) {
+                                ProgressBar(value: fraction, track: .black.opacity(0.12))
+                                if let label = action.detail { Text(label).font(.caption2.monospacedDigit()).opacity(0.65) }
+                            }
                         }
-                    }.padding(.horizontal, 18).padding(.vertical, 15).frame(maxWidth: .infinity)
-                        .background(Color.white).foregroundColor(.black).clipShape(RoundedRectangle(cornerRadius: 14))
+                    }.padding(.horizontal, 18).padding(.vertical, 14)
+                        .background(Color.white).foregroundColor(.black).clipShape(RoundedRectangle(cornerRadius: 12))
                 }.buttonStyle(LoungePressStyle())
             }
-            HStack(spacing: 10) {
-                Button { UIImpactFeedbackGenerator(style: .light).impactOccurred(); library.toggle(currentAnime) } label: {
-                    Label(library.contains(currentAnime) ? "Gemerkt" : "Watchlist", systemImage: library.contains(currentAnime) ? "checkmark" : "plus")
-                        .font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 13).loungeCard()
-                }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
+            HStack(spacing: 0) {
+                ActionColumn(title: "Watchlist", icon: library.contains(currentAnime) ? "checkmark" : "plus") {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred(); library.toggle(currentAnime)
+                }
+                if let trailer = extras?.trailer {
+                    Link(destination: trailer) { ActionColumnLabel(title: "Trailer", icon: "play.rectangle") }.buttonStyle(LoungePressStyle())
+                }
                 if let url = AniURL.page(anime.path) {
-                    ShareLink(item: url) {
-                        Label("Teilen", systemImage: "square.and.arrow.up").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 13).loungeCard()
-                    }.foregroundColor(.white)
+                    ShareLink(item: url) { ActionColumnLabel(title: "Teilen", icon: "square.and.arrow.up") }.buttonStyle(LoungePressStyle())
+                }
+            }.foregroundColor(.white)
+            VStack(alignment: .leading, spacing: 10) {
+                if !detail.synopsis.isEmpty {
+                    Text(detail.synopsis).font(.subheadline).foregroundColor(.white.opacity(0.8)).lineSpacing(4).lineLimit(expanded ? nil : 3)
+                        .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() } }
+                    if !expanded { Text("Mehr").font(.caption.bold()).foregroundColor(Theme.accentSoft).onTapGesture { withAnimation { expanded = true } } }
+                }
+                if let studio = extras?.studio { InfoLine(icon: "building.2", text: "Studio: \(studio)") }
+                if let episode = extras?.nextEpisode, let date = extras?.nextAiring, date > Date() {
+                    InfoLine(icon: "calendar", text: "Folge \(episode) in Japan: " + date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()))
                 }
             }
-            if let extras, extras.nextAiring != nil || extras.trailer != nil {
-                HStack(spacing: 10) {
-                    if let episode = extras.nextEpisode, let date = extras.nextAiring, date > Date() {
-                        Label {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text("Folge \(episode) in Japan").font(.caption.bold())
-                                Text(date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute())).font(.caption2).foregroundColor(Theme.muted)
-                            }
-                        } icon: { Image(systemName: "calendar.badge.clock").foregroundColor(Theme.accentSoft) }
-                            .padding(.horizontal, 12).padding(.vertical, 9).loungeCard()
-                    }
-                    Spacer(minLength: 0)
-                    if let trailer = extras.trailer {
-                        Link(destination: trailer) { Label("Trailer", systemImage: "play.rectangle.fill").font(.subheadline.bold()).padding(.horizontal, 14).padding(.vertical, 11).loungeCard() }
-                            .foregroundColor(.white)
-                    }
-                }
-            }
-            if !detail.synopsis.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(detail.synopsis).font(.subheadline).foregroundColor(.white.opacity(0.8)).lineSpacing(5).lineLimit(expanded ? nil : 4)
-                    Button(expanded ? "Weniger anzeigen" : "Mehr anzeigen") { expanded.toggle() }.font(.caption.bold()).tint(.white)
-                }
-            }
-            HStack {
-                Text("Episoden").font(.system(.title2, design: .rounded).bold())
-                Spacer()
-                if !detail.seasons.isEmpty {
-                    Menu {
-                        ForEach(detail.seasons) { season in
-                            Button(season.title) { selectedSeason = season.path }
-                        }
-                    } label: {
+            episodesSection(detail)
+        }.padding(.horizontal, 20).padding(.top, 14)
+    }
+    private func episodesSection(_ detail: AnimeDetail) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Folgen").font(.system(.title3, design: .rounded).bold())
+            if detail.seasons.count > 1 {
+                ScrollViewReader { reader in
+                    ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            Text(detail.seasons.first(where: { $0.path == selectedSeason })?.title ?? "Staffel")
-                            Image(systemName: "chevron.down").font(.caption.bold())
-                        }.font(.subheadline.bold()).padding(.horizontal, 16).padding(.vertical, 10).loungeCard()
-                    }.tint(Theme.accent)
+                            ForEach(detail.seasons) { season in
+                                let active = season.path == selectedSeason
+                                Button {
+                                    UISelectionFeedbackGenerator().selectionChanged()
+                                    withAnimation(.easeInOut(duration: 0.2)) { selectedSeason = season.path }
+                                } label: {
+                                    Text(season.title).font(.subheadline.bold()).padding(.horizontal, 16).padding(.vertical, 9)
+                                        .background(active ? AnyShapeStyle(Color.white) : AnyShapeStyle(Theme.panelHigh))
+                                        .foregroundColor(active ? .black : .white).clipShape(Capsule())
+                                }.buttonStyle(LoungePressStyle()).id(season.path)
+                            }
+                        }.padding(.horizontal, 20)
+                    }.padding(.horizontal, -20)
+                        .onChange(of: selectedSeason) { path in withAnimation { reader.scrollTo(path, anchor: .center) } }
+                        .onAppear { reader.scrollTo(selectedSeason, anchor: .center) }
                 }
             }
             if loadingEpisodes {
-                ProgressView("Folgen laden …").frame(maxWidth: .infinity).padding()
+                VStack(spacing: 14) { ForEach(0..<4, id: \.self) { _ in EpisodeRowSkeleton() } }
             } else if let episodeError {
                 ProblemView(message: episodeError) { Task { await loadSeason(selectedSeason) } }
             } else if episodes.isEmpty {
-                Text("Für diese Auswahl sind noch keine Folgen verfügbar.").foregroundColor(.secondary).padding(.vertical)
+                Text("Für diese Auswahl sind noch keine Folgen verfügbar.").foregroundColor(Theme.muted).padding(.vertical)
             } else {
-                LazyVStack(spacing: 10) {
+                LazyVStack(spacing: 14) {
                     ForEach(episodes) { episode in
-                        let seen = library.watched.contains(episode.id)
-                        let current = primaryAction?.episode.id == episode.id
-                        let info = episodeExtras[episode.number]
-                        HStack(spacing: 12) {
-                            Button { open(episode) } label: {
-                                HStack(spacing: 14) {
-                                    if let still = info?.image {
-                                        ZStack(alignment: .bottomLeading) {
-                                            Artwork(url: still).opacity(seen ? 0.5 : 1)
-                                            if current { Image(systemName: "play.fill").font(.caption).padding(7).background(Theme.accent).clipShape(Circle()).frame(maxWidth: .infinity, maxHeight: .infinity) }
-                                            Text(episode.number).font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2).background(.black.opacity(0.6)).clipShape(Capsule()).padding(5)
-                                        }.frame(width: 112, height: 63).clipShape(RoundedRectangle(cornerRadius: 10))
-                                    } else {
-                                        ZStack {
-                                            RoundedRectangle(cornerRadius: 12).fill(current ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.panelHigh))
-                                            if current { Image(systemName: "play.fill").font(.subheadline) }
-                                            else { Text(episode.number).font(.system(.headline, design: .rounded).bold()).foregroundColor(seen ? Theme.muted : .white) }
-                                        }.frame(width: 46, height: 46)
-                                    }
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(title(of: episode, info: info)).font(.subheadline.bold()).foregroundColor(seen ? Theme.muted : .white).multilineTextAlignment(.leading).lineLimit(2)
-                                        Text(subtitle(of: episode, info: info)).font(.caption2).foregroundColor(Theme.muted).lineLimit(1)
-                                        if let progress = library.progress(for: episode), !progress.completed, progress.seconds > 0 {
-                                            HStack(spacing: 8) {
-                                                if let fraction = progress.fraction { ProgressView(value: fraction).tint(Theme.accent) }
-                                                Text(progress.timeLabel).font(.caption2.monospacedDigit()).foregroundColor(Theme.accentSoft)
-                                            }
-                                        }
-                                    }
-                                    Spacer(minLength: 0)
-                                }.contentShape(Rectangle())
-                            }.buttonStyle(LoungePressStyle())
-                            Menu {
-                                Button { editingProgress = episode } label: { Label("Fortschritt bearbeiten", systemImage: "clock") }
-                                Button { library.toggleWatched(episode, anime: currentAnime) } label: {
-                                    Label(library.watched.contains(episode.id) ? "Als ungesehen markieren" : "Als gesehen markieren", systemImage: "checkmark.circle")
-                                }
-                            } label: {
-                                Image(systemName: library.watched.contains(episode.id) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundColor(library.watched.contains(episode.id) ? Theme.accent : .secondary)
-                                    .frame(width: 36, height: 44)
-                            }.accessibilityLabel("Fortschritt für Folge \(episode.number)")
-                        }.padding(10).loungeCard()
-                            .overlay(RoundedRectangle(cornerRadius: 22).stroke(current ? Theme.accent.opacity(0.5) : .clear))
+                        EpisodeRow(episode: episode, info: episodeExtras[episode.number], title: title(of: episode, info: episodeExtras[episode.number]),
+                                   progress: library.progress(for: episode), seen: isSeen(episode), current: primaryAction?.episode.id == episode.id,
+                                   play: { open(episode) }, more: { actionsFor = episode })
                     }
                 }
             }
-        }.padding(.horizontal, 20)
+        }
+    }
+    private func episodeActions(_ episode: Episode) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Folge \(episode.number) · \(title(of: episode, info: episodeExtras[episode.number]))").font(.headline).lineLimit(1).padding(.horizontal, 20).padding(.bottom, 8)
+            SheetRow(title: "Abspielen", icon: "play.fill") { actionsFor = nil; open(episode) }
+            SheetRow(title: isSeen(episode) ? "Als ungesehen markieren" : "Als gesehen markieren", icon: isSeen(episode) ? "eye.slash" : "checkmark") {
+                actionsFor = nil; library.setWatched(!isSeen(episode), episode: episode, anime: currentAnime)
+            }
+            SheetRow(title: "Fortschritt bearbeiten", icon: "clock") {
+                actionsFor = nil
+                Task { try? await Task.sleep(nanoseconds: 350_000_000); editingProgress = episode }
+            }
+        }
+    }
+    private func isSeen(_ episode: Episode) -> Bool {
+        library.watched.contains(episode.id) || library.progress(for: episode)?.isFinished == true
     }
     /// AniWorld's own (German) title wins; generic "Folge N" titles use the TVDB title.
-    private func subtitle(of episode: Episode, info: EpisodeExtras?) -> String {
-        var parts = episode.languages
-        if let runtime = info?.runtime { parts.insert("\(runtime) Min", at: 0) }
-        return parts.joined(separator: " · ")
-    }
     private func title(of episode: Episode, info: EpisodeExtras?) -> String {
         guard let better = info?.title, episode.title == "Folge \(episode.number)" || episode.title.isEmpty else { return episode.title }
         return better
@@ -210,24 +191,25 @@ struct DetailView: View {
     }
     private func loadEpisodeExtras() async {
         episodeExtras = [:]
-        guard let imdb = detail?.imdb, let range = selectedSeason.range(of: "/staffel-"), let number = Int(selectedSeason[range.upperBound...]) else { return }
+        guard let imdb = detail?.imdb, let number = SeasonNumber.from(selectedSeason) else { return }
         guard let loaded = try? await MetadataClient.shared.episodes(imdb: imdb, season: number), !Task.isCancelled else { return }
         withAnimation(.easeOut(duration: 0.2)) { episodeExtras = loaded }
     }
     /// Netflix-style main button: resume, next unwatched episode, or start from the beginning.
     private var primaryAction: (episode: Episode, title: String, detail: String?, fraction: Double?)? {
         if let progress = library.active.latest(for: currentAnime) {
-            if !progress.completed, progress.seconds > 0 {
-                return (progress.episode, "Weiterschauen · Folge \(progress.episode.number)", progress.timeLabel, progress.fraction)
+            if !progress.isFinished, progress.seconds > 0 {
+                let left = (progress.duration ?? progress.seconds) - progress.seconds
+                return (progress.episode, "Weiterschauen · Folge \(progress.episode.number)", "noch " + EpisodeProgress.format(max(0, left)), progress.fraction)
             }
             if let index = episodes.firstIndex(where: { $0.id == progress.episode.id }), episodes.indices.contains(index + 1) {
                 let next = episodes[index + 1]
-                return (next, "Folge \(next.number) ansehen", "Als Nächstes", nil)
+                return (next, "Folge \(next.number) abspielen", nil, nil)
             }
         }
         guard !loadingEpisodes else { return nil }
-        if let next = episodes.first(where: { !library.watched.contains($0.id) }), next.id != episodes.first?.id {
-            return (next, "Folge \(next.number) ansehen", "Als Nächstes", nil)
+        if let next = episodes.first(where: { !isSeen($0) }), next.id != episodes.first?.id {
+            return (next, "Folge \(next.number) abspielen", nil, nil)
         }
         guard let first = episodes.first else { return nil }
         return (first, "Folge \(first.number) abspielen", nil, nil)
@@ -262,19 +244,128 @@ struct DetailView: View {
     }
 }
 
-
+enum SeasonNumber {
+    /// `/anime/stream/x/staffel-3` becomes 3; films and other paths have none.
+    static func from(_ path: String) -> Int? {
+        guard let range = path.range(of: "/staffel-") else { return nil }
+        return Int(path[range.upperBound...].prefix { $0.isNumber })
+    }
+}
+struct EpisodeRow: View {
+    let episode: Episode
+    let info: EpisodeExtras?
+    let title: String
+    let progress: EpisodeProgress?
+    let seen: Bool
+    let current: Bool
+    let play: () -> Void
+    let more: () -> Void
+    var body: some View {
+        HStack(spacing: 14) {
+            Button(action: play) {
+                HStack(spacing: 14) {
+                    ZStack {
+                        if let still = info?.image { Artwork(url: still) }
+                        else {
+                            Theme.panelHigh
+                            Text(episode.number).font(.system(.title2, design: .rounded).bold()).foregroundColor(.white.opacity(0.35))
+                        }
+                        Image(systemName: "play.fill").font(.caption).foregroundColor(.white).frame(width: 30, height: 30)
+                            .background(.black.opacity(0.45)).clipShape(Circle()).overlay(Circle().stroke(.white.opacity(0.5)))
+                            .opacity(current || info?.image != nil ? 1 : 0)
+                        if let fraction = progress.flatMap({ $0.isFinished ? nil : $0.fraction }), fraction > 0 {
+                            ProgressBar(value: fraction, track: .black.opacity(0.4), height: 3).frame(maxHeight: .infinity, alignment: .bottom)
+                        }
+                    }
+                    .frame(width: 128, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(current ? Theme.accent : Theme.stroke, lineWidth: current ? 2 : 1))
+                    .overlay(alignment: .topTrailing) {
+                        if seen {
+                            Image(systemName: "checkmark").font(.system(size: 9, weight: .black)).frame(width: 18, height: 18)
+                                .background(Theme.accent).clipShape(Circle()).padding(5)
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Folge \(episode.number)").font(.caption.bold()).foregroundColor(current ? Theme.accentSoft : Theme.muted)
+                        Text(title).font(.subheadline.bold()).foregroundColor(seen ? .white.opacity(0.6) : .white)
+                            .multilineTextAlignment(.leading).lineLimit(2)
+                        HStack(spacing: 6) {
+                            if let runtime = info?.runtime { Text("\(runtime) Min").font(.caption2).foregroundColor(Theme.muted) }
+                            LanguageChips(languages: episode.languages)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }.contentShape(Rectangle())
+            }.buttonStyle(LoungePressStyle())
+            Button(action: more) {
+                Image(systemName: "ellipsis").font(.body.weight(.bold)).foregroundColor(Theme.muted).frame(width: 30, height: 44).contentShape(Rectangle())
+            }.accessibilityLabel("Optionen für Folge \(episode.number)")
+        }
+    }
+}
+struct EpisodeRowSkeleton: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            RoundedRectangle(cornerRadius: 8).fill(Theme.panel).frame(width: 128, height: 72)
+            VStack(alignment: .leading, spacing: 8) {
+                RoundedRectangle(cornerRadius: 3).fill(Theme.panel).frame(width: 60, height: 10)
+                RoundedRectangle(cornerRadius: 3).fill(Theme.panel).frame(width: 150, height: 12)
+            }
+            Spacer()
+        }.shimmer()
+    }
+}
+struct ProgressBar: View {
+    let value: Double
+    var track: Color = .white.opacity(0.2)
+    var height: CGFloat = 4
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(track)
+                Capsule().fill(Theme.accent).frame(width: geo.size.width * CGFloat(min(1, max(0, value))))
+            }
+        }.frame(height: height)
+    }
+}
+private struct ActionColumnLabel: View {
+    let title: String
+    let icon: String
+    var body: some View {
+        VStack(spacing: 7) {
+            Image(systemName: icon).font(.system(size: 21, weight: .medium)).frame(height: 24)
+            Text(title).font(.caption2.weight(.semibold)).foregroundColor(Theme.muted)
+        }.frame(maxWidth: .infinity).contentShape(Rectangle())
+    }
+}
+private struct ActionColumn: View {
+    let title: String
+    let icon: String
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) { ActionColumnLabel(title: title, icon: icon) }.buttonStyle(LoungePressStyle())
+    }
+}
+private struct InfoLine: View {
+    let icon: String
+    let text: String
+    var body: some View {
+        Label { Text(text) } icon: { Image(systemName: icon).foregroundColor(Theme.accentSoft) }
+            .font(.caption).foregroundColor(Theme.muted)
+    }
+}
 struct ExtrasBadges: View {
     let extras: AnimeExtras
     var body: some View {
         HStack(spacing: 6) {
             if let score = extras.score {
                 Label("\(score) %", systemImage: "star.fill").font(.caption2.bold()).padding(.horizontal, 7).padding(.vertical, 4)
-                    .background(Color.yellow.opacity(0.18)).foregroundColor(.yellow).clipShape(Capsule())
+                    .background(Color.yellow.opacity(0.16)).foregroundColor(.yellow).clipShape(Capsule()).fixedSize()
             }
             if let status = statusText {
-                Text(status).font(.caption2.bold()).padding(.horizontal, 7).padding(.vertical, 4).background(Theme.panelHigh).foregroundColor(Theme.accentSoft).clipShape(Capsule())
+                Text(status).font(.caption2.bold()).padding(.horizontal, 8).padding(.vertical, 4).background(Theme.panelHigh.opacity(0.9))
+                    .foregroundColor(Theme.accentSoft).clipShape(Capsule()).fixedSize()
             }
-            if let studio = extras.studio { Text(studio).font(.caption2.weight(.semibold)).foregroundColor(Theme.muted).lineLimit(1) }
         }
     }
     private var statusText: String? {

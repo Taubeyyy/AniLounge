@@ -19,6 +19,19 @@ public actor AniClient {
         if let result { covers[anime.id] = result }
         return result
     }
+    private var backdrops: [String: URL] = [:]
+    private var pendingBackdrops: [String: Task<URL?, Never>] = [:]
+    /// The wide AniWorld artwork of a series, for landscape cards and the home hero.
+    public func backdrop(for anime: Anime) async -> URL? {
+        if let cached = backdrops[anime.id] { return cached }
+        if let pending = pendingBackdrops[anime.id] { return await pending.value }
+        let task = Task<URL?, Never> { try? await self.detail(path: anime.path).backdrop }
+        pendingBackdrops[anime.id] = task
+        let result = await task.value
+        pendingBackdrops[anime.id] = nil
+        if let result { backdrops[anime.id] = result }
+        return result
+    }
     private let session: URLSession
     public init() {
         let config = URLSessionConfiguration.default

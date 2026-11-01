@@ -14,16 +14,17 @@ function video(duration = 1440, src = 'https://cdn.example/episode.mp4?token=sec
         emit(name) { (handlers[name] || []).forEach(fn => fn()); }
     };
 }
-function setup(videos, { seconds = 600, duration = 1440, resources = [], autoPlay = false } = {}) {
+function setup(videos, { seconds = 600, duration = 1440, resources = [], autoPlay = false, button = null } = {}) {
     const messages = [];
+    const timers = [];
     let now = 10000;
     const window = { webkit: { messageHandlers: { aniProgress: { postMessage: x => messages.push(x) } } }, addEventListener() {} };
-    const document = { baseURI: 'https://host.example/watch', documentElement: {}, querySelectorAll: () => videos, addEventListener() {} };
+    const document = { baseURI: 'https://host.example/watch', documentElement: {}, querySelectorAll: () => videos, querySelector: () => button, addEventListener() {} };
     vm.runInNewContext(template.replace('__ANILOUNGE_CONFIG__', JSON.stringify({ token: 'test', seconds, duration, autoPlay })), {
         window, document, URL, Date: { now: () => now }, performance: { getEntriesByType: () => resources.map(name => ({ name })) },
-        MutationObserver: class { observe() {} }
+        MutationObserver: class { observe() {} }, setTimeout: fn => timers.push(fn)
     });
-    return { messages, window, tick: () => { now += 5000; }, progress: () => messages.filter(m => m.kind === 'progress'), sources: () => messages.filter(m => m.kind === 'source') };
+    return { messages, window, runTimers: () => timers.splice(0).forEach(fn => fn()), tick: () => { now += 5000; }, progress: () => messages.filter(m => m.kind === 'progress'), sources: () => messages.filter(m => m.kind === 'source') };
 }
 test('restores position, reports signed source once, throttles and saves completion', () => {
     const v = video(); const env = setup([v]);
@@ -84,4 +85,25 @@ test('one-tap mode does not auto-start short ads or take over another playing vi
     const env = setup([ad, main, extra], { autoPlay: true });
     assert.equal(ad.playCalls, 0); assert.equal(main.playCalls, 1); assert.equal(extra.playCalls, 0);
     assert.equal(env.sources().length, 1);
+});
+
+test('preload="none" players are woken and started without a tap', () => {
+    const v = video(NaN); v.readyState = 0; v.paused = true; v.preload = 'none';
+    v.loadCalls = 0; v.load = function () { this.loadCalls++; };
+    const env = setup([v], { autoPlay: true });
+    assert.equal(v.preload, 'metadata'); assert.equal(v.loadCalls, 1);
+    v.emit('loadstart'); assert.equal(v.loadCalls, 1, 'wakes only once');
+    env.runTimers(); assert.equal(v.playCalls, 1);
+});
+test('the player big play button is pressed once when nothing plays; links never', () => {
+    const v = video(NaN, ''); v.readyState = 0; v.paused = true;
+    const button = { clicks: 0, click() { this.clicks++; }, closest: () => null };
+    const env = setup([v], { autoPlay: true, button });
+    env.runTimers(); assert.equal(button.clicks, 1); assert.equal(v.playCalls, 0, 'no source, nothing to play directly');
+    const link = { clicks: 0, click() { this.clicks++; }, closest: () => ({}) };
+    const other = video(NaN, ''); other.readyState = 0; other.paused = true;
+    setup([other], { autoPlay: true, button: link }).runTimers(); assert.equal(link.clicks, 0);
+    const off = { clicks: 0, click() { this.clicks++; }, closest: () => null };
+    const manual = video(NaN, ''); manual.readyState = 0; manual.paused = true;
+    setup([manual], { autoPlay: false, button: off }).runTimers(); assert.equal(off.clicks, 0);
 });

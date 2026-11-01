@@ -5,8 +5,9 @@ struct ProfileView: View {
     @EnvironmentObject private var library: LibraryStore
     @State private var editing = false
     @State private var creating = false
+    @State private var showingInfo = false
     var body: some View {
-        ScrollView {
+        LoungeScroll(title: "Profil", largeTitle: true) {
             VStack(alignment: .leading, spacing: 26) {
                 VStack(spacing: 14) {
                     Image(systemName: library.profile.avatar).font(.system(size: 44)).foregroundColor(.white)
@@ -43,8 +44,13 @@ struct ProfileView: View {
                 Label("Auf diesem Gerät", systemImage: "iphone").font(.subheadline.bold())
                 Text("Jedes Profil hat seine eigene Watchlist und seinen Fortschritt. Ohne Passwort oder Cloud-Synchronisation. Browser-Anmeldungen werden gemeinsam genutzt.")
                     .font(.footnote).foregroundColor(.secondary).lineSpacing(4)
-            }.padding(22)
-        }.background(Theme.background).navigationTitle("Deine Lounge").navigationBarTitleDisplayMode(.inline)
+                Button { showingInfo = true } label: {
+                    HStack { Label("Über AniLounge", systemImage: "info.circle"); Spacer(); Image(systemName: "chevron.right").font(.caption.bold()).foregroundColor(Theme.muted) }
+                        .font(.subheadline.bold()).padding(16).loungeCard()
+                }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
+            }.padding(.horizontal, 20)
+        }
+            .sheet(isPresented: $showingInfo) { InfoView() }
             .sheet(isPresented: $editing) { ProfileEditor(isNew: false).environmentObject(library) }
             .sheet(isPresented: $creating) { ProfileEditor(isNew: true).environmentObject(library) }
     }

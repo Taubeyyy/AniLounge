@@ -50,11 +50,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Mehr Infos zu jedem Anime: Bewertung, Studio, Status, Trailer und der nächste Sendetermin in Japan (AniList).
-          Episodenliste mit Vorschaubildern, Laufzeit und – wo AniWorld nur „Folge N“ kennt – echten Episodentiteln (ani.zip/TheTVDB).
-          Neue Reihe „Ähnliche Anime“ auf der Detailseite, nur mit Titeln, die es auf AniWorld gibt.
-          Alles optional: Sind die Dienste nicht erreichbar, sieht die Seite aus wie in 0.6.
+          Aufgeräumtes Design: eigene Kopfleisten, die über Bildern transparent sind und beim Scrollen milchig werden (kein springendes Info-Symbol mehr), breite Bilder auf der Startseite, Staffel-Auswahl als Pills, Folgenliste mit Vorschaubildern und Sprachkürzeln (DE, DE-Sub, EN-Sub), eigene Bottom-Sheets statt Systemmenüs.
+          Player: „Opening überspringen“ nur noch während des echten Openings (AniSkip), im Abspann „Nächste Folge“. Alle Folgen der Staffel direkt unter dem Player. Weitere Optionen im Mehr-Menü.
+          Videos starten ohne extra Tippen: Player mit preload="none" werden geweckt, notfalls drückt die App den Play-Knopf des Players (nie Links).
+          Folgen gelten im Abspann als gesehen. Bilder und Titel jetzt auch für spätere Staffeln (z. B. Dr. Stone Staffel 4).
           Mit TrollStore als Update installieren, um lokale Daten zu behalten.
           NOTES
-          gh release create v0.7.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.7.0" --notes-file build/release-notes.md
+          gh release create v0.8.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.8.0" --notes-file build/release-notes.md
 

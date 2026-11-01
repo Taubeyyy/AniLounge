@@ -11,13 +11,13 @@ struct SearchView: View {
         return term.isEmpty ? catalog : catalog.filter { $0.title.localizedStandardContains(term) || $0.aliases.localizedStandardContains(term) }
     }
     var body: some View {
-        ScrollView {
+        LoungeScroll(title: "Suche", largeTitle: true) {
             LazyVStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 12) {
-                    Image(systemName: "magnifyingglass").foregroundColor(Theme.accent)
+                    Image(systemName: "magnifyingglass").foregroundColor(Theme.muted)
                     TextField("Deinen nächsten Anime finden", text: $query).textInputAutocapitalization(.never)
                     if !query.isEmpty { Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Suche löschen") }
-                }.padding(16).loungeCard().padding(.top, 12)
+                }.padding(.horizontal, 14).padding(.vertical, 12).background(Theme.panelHigh).clipShape(RoundedRectangle(cornerRadius: 12))
                 if let error { ProblemView(message: error) { Task { await load() } } }
                 else if loading {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12)], spacing: 18) {
@@ -38,7 +38,6 @@ struct SearchView: View {
                 }
             }.padding(.horizontal, 20)
         }
-        .background(Theme.background).navigationTitle("Suche")
         .autocorrectionDisabled()
         .task { if catalog.isEmpty { await load() } }
         .refreshable { await AniClient.shared.clearCache(); await load() }
@@ -73,13 +72,13 @@ struct GridPoster: View {
 struct SavedView: View {
     @EnvironmentObject private var library: LibraryStore
     var body: some View {
-        ScrollView {
+        LoungeScroll(title: "Watchlist", largeTitle: true) {
             if library.favorites.isEmpty {
                 VStack(spacing: 16) {
                     Image(systemName: "bookmark").font(.system(size: 44)).foregroundColor(Theme.accent)
                     Text("Platz für deine nächsten Lieblingsanime.").font(.title3.bold()).multilineTextAlignment(.center)
                     Text("Tippe bei einem Anime auf „Watchlist“, um ihn hier zu speichern.").foregroundColor(.secondary).multilineTextAlignment(.center)
-                }.padding(36).padding(.top, 80)
+                }.padding(36).padding(.top, 60).frame(maxWidth: .infinity)
             } else {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12, alignment: .top)], spacing: 18) {
                     ForEach(library.favorites) { anime in
@@ -87,9 +86,9 @@ struct SavedView: View {
                             .buttonStyle(LoungePressStyle())
                             .contextMenu { Button(role: .destructive) { library.toggle(anime) } label: { Label("Aus Liste entfernen", systemImage: "bookmark.slash") } }
                     }
-                }.padding(20)
+                }.padding(.horizontal, 20).padding(.top, 6)
             }
-        }.frame(maxWidth: .infinity).background(Theme.background).navigationTitle("Watchlist")
+        }
     }
 }
 
