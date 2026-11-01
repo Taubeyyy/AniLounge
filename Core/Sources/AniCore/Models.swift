@@ -30,6 +30,7 @@ public struct AnimeDetail: Sendable {
     public let seasons: [Season]
     public let episodes: [Episode]
     public let backdrop: URL?
+    public var imdb: String? = nil
 }
 public struct HomeFeed: Sendable {
     public let featured: [Anime]

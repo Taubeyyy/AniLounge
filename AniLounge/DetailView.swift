@@ -15,15 +15,20 @@ struct DetailView: View {
     @State private var playback: PlaybackRequest?
     @State private var editingProgress: Episode?
     @State private var expanded = false
+    @State private var extras: AnimeExtras?
+    @State private var episodeExtras: [String: EpisodeExtras] = [:]
+    @State private var similar: [Anime] = []
     private var currentAnime: Anime { detail?.anime ?? anime }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 ZStack(alignment: .bottomLeading) {
-                    Artwork(url: detail?.backdrop ?? currentAnime.poster).blur(radius: detail?.backdrop == nil ? 18 : 0)
+                    // AniWorld's backdrop fits the tall header; AniList banners are a fallback.
+                    Artwork(url: detail?.backdrop ?? extras?.banner ?? currentAnime.poster).blur(radius: detail?.backdrop == nil && extras?.banner == nil ? 18 : 0)
                     LinearGradient(colors: [Theme.background.opacity(0.4), .clear, Theme.background.opacity(0.7), Theme.background], startPoint: .top, endPoint: .bottom)
                     HStack(alignment: .bottom, spacing: 16) {
-                        AnimeArtwork(anime: currentAnime).frame(width: 104, height: 156).clipShape(RoundedRectangle(cornerRadius: 12))
+                        Group { if let cover = extras?.cover { Artwork(url: cover) } else { AnimeArtwork(anime: currentAnime) } }
+                            .frame(width: 104, height: 156).clipShape(RoundedRectangle(cornerRadius: 12))
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.stroke)).shadow(color: .black.opacity(0.5), radius: 16, y: 8)
                         VStack(alignment: .leading, spacing: 8) {
                             Text(currentAnime.title).font(.system(size: 26, weight: .heavy, design: .rounded)).lineLimit(3).minimumScaleFactor(0.75)
@@ -31,11 +36,13 @@ struct DetailView: View {
                                 Text(([detail.year] + detail.genres.prefix(3)).filter { !$0.isEmpty }.joined(separator: " · "))
                                     .font(.caption.weight(.semibold)).foregroundColor(Theme.muted).lineLimit(2)
                             }
+                            if let extras { ExtrasBadges(extras: extras) }
                         }
                     }.padding(.horizontal, 20).padding(.bottom, 8)
                 }.frame(height: 340).clipped()
                 if let detail {
                     detailContent(detail)
+                    if !similar.isEmpty { AnimeShelf(title: "Ähnliche Anime", items: similar).padding(.top, 12) }
                 } else if let error {
                     ProblemView(message: error) { Task { await loadDetail() } }
                 } else { ProgressView("Anime wird geladen …").frame(maxWidth: .infinity).padding(32) }
@@ -45,6 +52,8 @@ struct DetailView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .task { if detail == nil { await loadDetail() } }
         .task(id: selectedSeason) { if !selectedSeason.isEmpty { await loadSeason(selectedSeason) } }
+        .task(id: detail?.imdb) { await loadExtras() }
+        .task(id: (detail?.imdb ?? "") + selectedSeason) { await loadEpisodeExtras() }
         .fullScreenCover(item: $playback) { request in PlaybackView(request: request, library: library) }
         .sheet(item: $editingProgress) { episode in ProgressEditor(anime: currentAnime, episode: episode, profileID: library.profile.id).environmentObject(library) }
     }
@@ -82,6 +91,24 @@ struct DetailView: View {
                     }.foregroundColor(.white)
                 }
             }
+            if let extras, extras.nextAiring != nil || extras.trailer != nil {
+                HStack(spacing: 10) {
+                    if let episode = extras.nextEpisode, let date = extras.nextAiring, date > Date() {
+                        Label {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text("Folge \(episode) in Japan").font(.caption.bold())
+                                Text(date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute())).font(.caption2).foregroundColor(Theme.muted)
+                            }
+                        } icon: { Image(systemName: "calendar.badge.clock").foregroundColor(Theme.accentSoft) }
+                            .padding(.horizontal, 12).padding(.vertical, 9).loungeCard()
+                    }
+                    Spacer(minLength: 0)
+                    if let trailer = extras.trailer {
+                        Link(destination: trailer) { Label("Trailer", systemImage: "play.rectangle.fill").font(.subheadline.bold()).padding(.horizontal, 14).padding(.vertical, 11).loungeCard() }
+                            .foregroundColor(.white)
+                    }
+                }
+            }
             if !detail.synopsis.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(detail.synopsis).font(.subheadline).foregroundColor(.white.opacity(0.8)).lineSpacing(5).lineLimit(expanded ? nil : 4)
@@ -115,17 +142,26 @@ struct DetailView: View {
                     ForEach(episodes) { episode in
                         let seen = library.watched.contains(episode.id)
                         let current = primaryAction?.episode.id == episode.id
+                        let info = episodeExtras[episode.number]
                         HStack(spacing: 12) {
                             Button { open(episode) } label: {
                                 HStack(spacing: 14) {
-                                    ZStack {
-                                        RoundedRectangle(cornerRadius: 12).fill(current ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.panelHigh))
-                                        if current { Image(systemName: "play.fill").font(.subheadline) }
-                                        else { Text(episode.number).font(.system(.headline, design: .rounded).bold()).foregroundColor(seen ? Theme.muted : .white) }
-                                    }.frame(width: 46, height: 46)
+                                    if let still = info?.image {
+                                        ZStack(alignment: .bottomLeading) {
+                                            Artwork(url: still).opacity(seen ? 0.5 : 1)
+                                            if current { Image(systemName: "play.fill").font(.caption).padding(7).background(Theme.accent).clipShape(Circle()).frame(maxWidth: .infinity, maxHeight: .infinity) }
+                                            Text(episode.number).font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2).background(.black.opacity(0.6)).clipShape(Capsule()).padding(5)
+                                        }.frame(width: 112, height: 63).clipShape(RoundedRectangle(cornerRadius: 10))
+                                    } else {
+                                        ZStack {
+                                            RoundedRectangle(cornerRadius: 12).fill(current ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.panelHigh))
+                                            if current { Image(systemName: "play.fill").font(.subheadline) }
+                                            else { Text(episode.number).font(.system(.headline, design: .rounded).bold()).foregroundColor(seen ? Theme.muted : .white) }
+                                        }.frame(width: 46, height: 46)
+                                    }
                                     VStack(alignment: .leading, spacing: 5) {
-                                        Text(episode.title).font(.subheadline.bold()).foregroundColor(seen ? Theme.muted : .white).multilineTextAlignment(.leading).lineLimit(2)
-                                        Text(episode.languages.joined(separator: " · ")).font(.caption2).foregroundColor(Theme.muted).lineLimit(1)
+                                        Text(title(of: episode, info: info)).font(.subheadline.bold()).foregroundColor(seen ? Theme.muted : .white).multilineTextAlignment(.leading).lineLimit(2)
+                                        Text(subtitle(of: episode, info: info)).font(.caption2).foregroundColor(Theme.muted).lineLimit(1)
                                         if let progress = library.progress(for: episode), !progress.completed, progress.seconds > 0 {
                                             HStack(spacing: 8) {
                                                 if let fraction = progress.fraction { ProgressView(value: fraction).tint(Theme.accent) }
@@ -152,6 +188,31 @@ struct DetailView: View {
                 }
             }
         }.padding(.horizontal, 20)
+    }
+    /// AniWorld's own (German) title wins; generic "Folge N" titles use the TVDB title.
+    private func subtitle(of episode: Episode, info: EpisodeExtras?) -> String {
+        var parts = episode.languages
+        if let runtime = info?.runtime { parts.insert("\(runtime) Min", at: 0) }
+        return parts.joined(separator: " · ")
+    }
+    private func title(of episode: Episode, info: EpisodeExtras?) -> String {
+        guard let better = info?.title, episode.title == "Folge \(episode.number)" || episode.title.isEmpty else { return episode.title }
+        return better
+    }
+    private func loadExtras() async {
+        guard let imdb = detail?.imdb else { return }
+        // Extra data is optional: failures only hide the additions.
+        guard let loaded = try? await MetadataClient.shared.extras(imdb: imdb), !Task.isCancelled else { return }
+        withAnimation(.easeOut(duration: 0.25)) { extras = loaded }
+        guard !loaded.recommendations.isEmpty, let catalog = try? await AniClient.shared.catalog(), !Task.isCancelled else { return }
+        let matched = SimilarMatcher.match(loaded.recommendations, in: catalog).filter { $0.id != currentAnime.id }
+        withAnimation(.easeOut(duration: 0.25)) { similar = Array(matched.prefix(12)) }
+    }
+    private func loadEpisodeExtras() async {
+        episodeExtras = [:]
+        guard let imdb = detail?.imdb, let range = selectedSeason.range(of: "/staffel-"), let number = Int(selectedSeason[range.upperBound...]) else { return }
+        guard let loaded = try? await MetadataClient.shared.episodes(imdb: imdb, season: number), !Task.isCancelled else { return }
+        withAnimation(.easeOut(duration: 0.2)) { episodeExtras = loaded }
     }
     /// Netflix-style main button: resume, next unwatched episode, or start from the beginning.
     private var primaryAction: (episode: Episode, title: String, detail: String?, fraction: Double?)? {
@@ -201,3 +262,44 @@ struct DetailView: View {
     }
 }
 
+
+struct ExtrasBadges: View {
+    let extras: AnimeExtras
+    var body: some View {
+        HStack(spacing: 6) {
+            if let score = extras.score {
+                Label("\(score) %", systemImage: "star.fill").font(.caption2.bold()).padding(.horizontal, 7).padding(.vertical, 4)
+                    .background(Color.yellow.opacity(0.18)).foregroundColor(.yellow).clipShape(Capsule())
+            }
+            if let status = statusText {
+                Text(status).font(.caption2.bold()).padding(.horizontal, 7).padding(.vertical, 4).background(Theme.panelHigh).foregroundColor(Theme.accentSoft).clipShape(Capsule())
+            }
+            if let studio = extras.studio { Text(studio).font(.caption2.weight(.semibold)).foregroundColor(Theme.muted).lineLimit(1) }
+        }
+    }
+    private var statusText: String? {
+        switch extras.status {
+        case "RELEASING": return "Läuft"
+        case "FINISHED": return "Abgeschlossen"
+        case "NOT_YET_RELEASED": return "Bald"
+        case "HIATUS": return "Pause"
+        default: return nil
+        }
+    }
+}
+/// Finds AniList recommendations in AniWorld's catalog by normalised title.
+enum SimilarMatcher {
+    static func key(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).filter { $0.isLetter || $0.isNumber }
+    }
+    static func match(_ recommendations: [[String]], in catalog: [Anime]) -> [Anime] {
+        var index: [String: Anime] = [:]
+        for anime in catalog {
+            for name in [anime.title] + anime.aliases.split(separator: ",").map(String.init) {
+                let k = key(name); if k.count >= 3 && index[k] == nil { index[k] = anime }
+            }
+        }
+        var seen = Set<String>()
+        return recommendations.compactMap { names in names.lazy.compactMap { index[key($0)] }.first }.filter { seen.insert($0.id).inserted }
+    }
+}

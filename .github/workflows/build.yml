@@ -50,10 +50,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Neuer Look im Streaming-Stil: Hero-Karussell, Weiterschauen-Kacheln, Poster-Raster in Suche und Watchlist, neue Detailseite mit smartem Abspielen-Knopf, animierte Tableiste und ein neues App-Icon.
-          Player neu: Video oben, Infos darunter, im Querformat randlos. Bild-in-Bild läuft weiter, während du in der App stöberst. „Opening überspringen“, „10 s zurück“ und ein Countdown zur nächsten Folge direkt auf dem Video.
-          Downloads: jetzt auch über Mobilfunk und mit Referer des Anbieters, damit mehr Hoster den Download erlauben. Der Download-Knopf ist sichtbar, sobald die Folge im iOS-Player läuft.
-          Mit TrollStore als Update installieren, um lokale Daten zu behalten. Laufende 0.5-Downloads werden als unterbrochen markiert.
+          Mehr Infos zu jedem Anime: Bewertung, Studio, Status, Trailer und der nächste Sendetermin in Japan (AniList).
+          Episodenliste mit Vorschaubildern, Laufzeit und – wo AniWorld nur „Folge N“ kennt – echten Episodentiteln (ani.zip/TheTVDB).
+          Neue Reihe „Ähnliche Anime“ auf der Detailseite, nur mit Titeln, die es auf AniWorld gibt.
+          Alles optional: Sind die Dienste nicht erreichbar, sieht die Seite aus wie in 0.6.
+          Mit TrollStore als Update installieren, um lokale Daten zu behalten.
           NOTES
-          gh release create v0.6.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.6.0" --notes-file build/release-notes.md
+          gh release create v0.7.0 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.7.0" --notes-file build/release-notes.md
 

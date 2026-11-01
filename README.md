@@ -2,6 +2,11 @@
 
 Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Apps inspirierten SwiftUI-Oberfläche. Zielgerät: iPhone 13 mit iOS 16.4.1 und bereits eingerichtetem TrollStore. Das Layout unterstützt auch iPad; die Installation dort benötigt einen eigenen kompatiblen Installationsweg.
 
+## Version 0.7.0
+
+- Zusatzdaten über die IMDb-ID der AniWorld-Seite: Bewertung, Studio, Status, Trailer und nächster Sendetermin (AniList), Episodenbilder, Laufzeiten und Titel (ani.zip). Ohne Konto oder API-Schlüssel; fällt ein Dienst aus, fehlen nur die Zusätze.
+- „Ähnliche Anime“ aus AniList-Empfehlungen, abgeglichen mit dem AniWorld-Katalog.
+
 ## Version 0.6.0
 
 - Neues Design im Streaming-Stil mit Hero-Karussell, Poster-Rastern, neuer Detailseite und neuem App-Icon.
@@ -22,7 +27,7 @@ Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Ap
 
 **Buildstatus:** Version 0.5.0 wurde mit 38 erfolgreichen Tests geprüft und als Ad-hoc-signierte IPA gebaut. Der aktuelle geprüfte Stand steht in `VALIDATION.json`. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
 
-[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.6.0/AniLounge.ipa) · [Release 0.6.0](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.6.0)
+[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.7.0/AniLounge.ipa) · [Release 0.7.0](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.7.0)
 
 [Builds und IPA-Artefakte](https://github.com/Taubeyyy/AniLounge/actions)
 

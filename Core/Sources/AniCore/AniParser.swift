@@ -115,8 +115,9 @@ public enum AniParser {
             let raw = String(style[start.upperBound..<end]).trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
             backdrop = AniURL.image(raw)
         }
+        let imdb = MetadataParser.validIMDb(try doc.select("a.imdb-link").attr("data-imdb"))
         return AnimeDetail(anime: Anime(path: root, title: title, poster: poster), synopsis: synopsis,
-                           genres: genres, year: year, seasons: seasons, episodes: episodes, backdrop: backdrop)
+                           genres: genres, year: year, seasons: seasons, episodes: episodes, backdrop: backdrop, imdb: imdb)
     }
 }
 
