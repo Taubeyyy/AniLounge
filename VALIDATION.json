@@ -1,16 +1,16 @@
 {
-  "version": "0.8.0",
+  "version": "0.9.0",
   "verified_date": "2026-11-01",
-  "source_commit": "0c1cdb4d083a151cc457a2661923c794ce377ee6",
-  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41302579670",
-  "swift_core_tests": 32,
-  "javascript_tests": 10,
+  "source_commit": "bd13b971707a688b1697a48d02528ea2008601b8",
+  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41313432553",
+  "swift_core_tests": 33,
+  "javascript_tests": 11,
   "ios_simulator_tests": 7,
   "test_failures": 0,
   "webkit_rule_compilation": "passed",
   "ios_build": "success",
   "ipa_validation": "passed",
-  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.8.0",
+  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.0",
   "ipa_bytes": 1243895,
   "downloads": {
     "implemented": [
@@ -52,5 +52,11 @@
     "Tap-free start on VOE and other hosters",
     "Edge swipe back with hidden navigation bar",
     "AniSkip timing against German dubs"
+  ],
+  "not_verified_on_device_0_9": [
+    "VOE start through JW Player API",
+    "Custom player gestures and rotation on iPhone",
+    "PiP from AVPlayerLayer and lock screen controls",
+    "Portrait lock outside the player"
   ]
 }
