@@ -1,16 +1,16 @@
 {
-  "version": "0.6.0",
+  "version": "0.7.0",
   "verified_date": "2026-11-01",
-  "source_commit": "01ea8cfa18ee88c3c30576426b3157d5ba27a16e",
-  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41299762932",
-  "swift_core_tests": 24,
+  "source_commit": "87338bb8afd4f6c8dde96a83a5caabb28b0e05a4",
+  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41300525613",
+  "swift_core_tests": 28,
   "javascript_tests": 8,
-  "ios_simulator_tests": 6,
+  "ios_simulator_tests": 7,
   "test_failures": 0,
   "webkit_rule_compilation": "passed",
   "ios_build": "success",
   "ipa_validation": "passed",
-  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.6.0",
+  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.7.0",
   "ipa_bytes": 1243895,
   "downloads": {
     "implemented": [
@@ -43,5 +43,9 @@
     "Hoster acceptance of referer/origin headers",
     "Cellular downloads",
     "Landscape theater layout on iPhone"
+  ],
+  "not_verified_on_device_0_7": [
+    "AniList/ani.zip reachability from the device",
+    "Season mapping for split-cour series"
   ]
 }
