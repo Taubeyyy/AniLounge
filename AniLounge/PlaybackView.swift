@@ -366,6 +366,10 @@ final class PlayerSurfaceView: UIView {
         guard !closed, !choosingHost, let body = message.body as? [String: Any], body["token"] as? String == token else { return }
         if body["kind"] as? String == "debug" {
             if let text = body["text"] as? String { DebugLog.shared.add("web", String(text.prefix(200))) }
+            // The hoster asks for a human check; only the viewer may answer it, so show the page.
+            if message.frameInfo.securityOrigin.host == "challenges.cloudflare.com", preparing, !nativeReady {
+                showWebPlayer(); status = "Der Anbieter möchte eine kurze Bestätigung. Danach startet das Video."
+            }
             return
         }
         if body["kind"] as? String == "source" {
@@ -738,12 +742,14 @@ struct PlaybackView: View {
                 if model.choosingHost {
                     VStack(spacing: 0) { topBar; hostPicker }.background(Theme.background.ignoresSafeArea())
                 }
-            }.background((theater ? Color.black : Theme.background).ignoresSafeArea())
+                if showingMore { settingsPanel.zIndex(2) }
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.88), value: showingMore)
+            .background((theater ? Color.black : Theme.background).ignoresSafeArea())
                 .toolbar(.hidden, for: .navigationBar)
                 .statusBarHidden(theater)
                 .persistentSystemOverlays(theater ? .hidden : .automatic)
                 .alert("Download", isPresented: Binding(get: { downloads.storageError != nil }, set: { if !$0 { downloads.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(downloads.storageError ?? "") }
-                .loungeSheet(isPresented: $showingMore, height: model.nativeReady ? 470 : 300) { moreSheet }
                 .task { PlaybackCenter.shared.activate(model); await model.loadHosts() }
                 .onChange(of: phase) { if $0 != .active { model.checkpoint(); model.cancelCountdown() } }
                 // Picture in Picture continues in a small window while the viewer keeps browsing.
@@ -936,9 +942,28 @@ struct PlaybackView: View {
                 .accessibilityHint("Nur verfügbar, wenn die Folge im iOS-Player läuft")
         }
     }
+    /// In-player settings: a side panel in landscape, a bottom panel in portrait, always with a close button.
+    private var settingsPanel: some View {
+        ZStack(alignment: theater ? .trailing : .bottom) {
+            Color.black.opacity(0.45).ignoresSafeArea().onTapGesture { showingMore = false }.transition(.opacity)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Einstellungen").font(.headline)
+                    Spacer()
+                    Button { showingMore = false } label: { CircleIcon(systemName: "xmark") }.buttonStyle(LoungePressStyle()).accessibilityLabel("Schließen")
+                }.padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 6)
+                ScrollView { moreSheet.padding(.bottom, 20) }
+            }
+            .frame(maxWidth: theater ? 380 : .infinity, maxHeight: theater ? .infinity : 480)
+            .background(Theme.background.opacity(0.97))
+            .clipShape(RoundedRectangle(cornerRadius: theater ? 0 : 24))
+            .overlay(RoundedRectangle(cornerRadius: theater ? 0 : 24).stroke(Theme.stroke))
+            .ignoresSafeArea(edges: theater ? [.vertical, .trailing] : .bottom)
+            .transition(.move(edge: theater ? .trailing : .bottom))
+        }
+    }
     private var moreSheet: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Wiedergabe").font(.headline).padding(.horizontal, 20).padding(.bottom, 8)
             if model.nativeReady {
                 SettingsPills(title: "Geschwindigkeit", icon: "speedometer", options: AppSettings.speeds, label: AppSettings.speedLabel,
                               selection: Binding(get: { model.speed }, set: { model.setSpeed($0) }))

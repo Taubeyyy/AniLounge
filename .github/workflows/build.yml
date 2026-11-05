@@ -50,9 +50,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Neu: Diagnose-Protokoll unter Ich > Einstellungen > Hilfe, zum Teilen wenn eine Quelle hängt.
-          Ladebildschirm mit Neu laden; Weiterschauen-Kacheln lassen sich per langem Druck entfernen oder als gesehen markieren.
-          Weicherer Übergang beim Drehen; bei automatischem Opening-Überspringen kein Skip-Knopf mehr.
+          Player-Einstellungen als eigenes Panel mit Schließen-Knopf (im Querformat von der Seite).
+          Doodstream: Verlangt der Anbieter eine Cloudflare-Bestätigung, wird die Seite sofort gezeigt, damit du sie bestätigen kannst.
           NOTES
-          gh release create v0.9.5 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.5" --notes-file build/release-notes.md
+          gh release create v0.9.6 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.6" --notes-file build/release-notes.md
 
