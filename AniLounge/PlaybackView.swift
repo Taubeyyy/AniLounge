@@ -35,19 +35,23 @@ final class PlayerSurfaceView: UIView {
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 }
-/// Keeps a playback session alive while it runs in Picture in Picture after its screen was closed,
-/// and re-presents it when the viewer restores the floating window.
+/// The one place the player is presented from, at the root of the app. Presenting from inside
+/// scrolling lists broke when they rebuilt (rotation, lazy loading) and left a stray video behind.
+/// Also keeps a Picture in Picture session alive after its screen closed and brings it back.
 @MainActor final class PlaybackCenter: ObservableObject {
     static let shared = PlaybackCenter()
-    @Published var restored: PlayerModel?
+    @Published var presented: PlayerModel?
     private(set) var current: PlayerModel?
+    func open(_ request: PlaybackRequest, library: LibraryStore) {
+        presented = PlayerModel(request: request, store: library)
+    }
     func activate(_ model: PlayerModel) {
         if let current, current !== model { current.finish() }
         current = model
     }
     func ended(_ model: PlayerModel) {
         if current === model { current = nil }
-        if restored === model { restored = nil }
+        if presented === model { presented = nil }
     }
 }
 @MainActor final class PlayerModel: NSObject, ObservableObject, Identifiable, WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate, AVPictureInPictureControllerDelegate {
@@ -568,7 +572,7 @@ final class PlayerSurfaceView: UIView {
     func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
         guard detached, !closed else { completionHandler(true); return }
         restoringInterface = true
-        PlaybackCenter.shared.restored = self
+        PlaybackCenter.shared.presented = self
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 600_000_000)
             guard let self else { completionHandler(false); return }
@@ -664,19 +668,22 @@ struct PlaybackView: View {
     }
     /// iPhone landscape: the video fills the screen like a streaming app.
     private var theater: Bool { verticalSize == .compact && !model.choosingHost }
+    private var portraitVideoHeight: CGFloat { (UIScreen.main.bounds.width * 9 / 16).rounded() }
     var body: some View {
         NavigationStack {
             // One stable hierarchy for every orientation: the video surface and the web view are
             // never rebuilt when rotating, which used to leave a white, detached player behind.
             ZStack {
-                // Explicit sizes: full screen in landscape, a 16:9 band in portrait.
-                GeometryReader { geo in
-                    VStack(spacing: 0) {
-                        if !theater { topBar }
-                        stage.frame(width: geo.size.width, height: theater ? geo.size.height : (geo.size.width * 9 / 16).rounded())
-                        if !theater { infoPanel }
-                    }
-                }.ignoresSafeArea(edges: theater ? .all : [])
+                // Landscape: the stage fills the whole screen, edges included. Portrait: a 16:9 band
+                // across the full width. Only frame values change, never the view structure.
+                VStack(spacing: 0) {
+                    if !theater { topBar }
+                    stage
+                        .frame(maxWidth: .infinity, maxHeight: theater ? .infinity : nil)
+                        .frame(height: theater ? nil : portraitVideoHeight)
+                        .ignoresSafeArea(edges: theater ? .all : [])
+                    if !theater { infoPanel }
+                }
                 if model.choosingHost {
                     VStack(spacing: 0) { topBar; hostPicker }.background(Theme.background.ignoresSafeArea())
                 }

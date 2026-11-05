@@ -2,6 +2,10 @@
 
 Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Apps inspirierten SwiftUI-Oberfläche. Zielgerät: iPhone 13 mit iOS 16.4.1 und bereits eingerichtetem TrollStore. Das Layout unterstützt auch iPad; die Installation dort benötigt einen eigenen kompatiblen Installationsweg.
 
+## Version 0.9.3
+
+- Vollbild füllt im Querformat den ganzen Bildschirm; der Player öffnet zentral und geht beim Drehen nicht mehr verloren.
+
 ## Version 0.9.2
 
 - Weiche Bild-Übergänge, dehnbares Detail-Kopfbild, Bestätigungs-Toasts, neue Downloads-Seite, sortierbare Watchlist und letzte Suchen.
@@ -48,7 +52,7 @@ Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Ap
 
 **Buildstatus:** Version 0.5.0 wurde mit 38 erfolgreichen Tests geprüft und als Ad-hoc-signierte IPA gebaut. Der aktuelle geprüfte Stand steht in `VALIDATION.json`. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
 
-[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.9.2/AniLounge.ipa) · [Release 0.9.2](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.2)
+[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.9.3/AniLounge.ipa) · [Release 0.9.3](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.3)
 
 [Builds und IPA-Artefakte](https://github.com/Taubeyyy/AniLounge/actions)
 

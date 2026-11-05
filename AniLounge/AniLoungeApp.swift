@@ -27,8 +27,8 @@ struct RootView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { LoungeTabBar(tabs: tabs, selected: $selected) }
         .id(library.profile.id)
         .overlay(alignment: .top) { ToastHost() }
-        // Restoring a Picture in Picture window brings its player back from anywhere in the app.
-        .fullScreenCover(item: $playback.restored) { PlaybackView(model: $0) }
+        // Every episode opens here, and so does a restored Picture in Picture window.
+        .fullScreenCover(item: $playback.presented) { PlaybackView(model: $0) }
         .alert("Speichern nicht möglich", isPresented: Binding(get: { library.storageError != nil }, set: { if !$0 { library.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(library.storageError ?? "") }
     }
 }

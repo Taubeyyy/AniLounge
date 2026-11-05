@@ -4,7 +4,6 @@ import AniCore
 struct DownloadsView: View {
     @EnvironmentObject private var library: LibraryStore
     @ObservedObject private var downloads = DownloadStore.shared
-    @State private var playback: PlaybackRequest?
     @State private var actionsFor: EpisodeDownload?
     @State private var deleting: EpisodeDownload?
     private var entries: [EpisodeDownload] { downloads.items.filter { $0.profileID == library.profile.id } }
@@ -31,7 +30,6 @@ struct DownloadsView: View {
             }.padding(.horizontal, 20)
         }
         .task { downloads.start() }
-        .fullScreenCover(item: $playback) { PlaybackView(request: $0, library: library) }
         .loungeSheet(isPresented: Binding(get: { actionsFor != nil }, set: { if !$0 { actionsFor = nil } }), height: 260) {
             if let entry = actionsFor { actions(entry) }
         }
@@ -84,13 +82,14 @@ struct DownloadsView: View {
         default: return entry.message ?? "Nicht verfügbar"
         }
     }
+    private func play(_ request: PlaybackRequest) { PlaybackCenter.shared.open(request, library: library) }
     private func open(_ entry: EpisodeDownload) {
         if let url = downloads.localURL(for: entry) {
-            playback = PlaybackRequest(anime: entry.anime, episode: entry.episode, profileID: entry.profileID, localURL: url)
+            play(PlaybackRequest(anime: entry.anime, episode: entry.episode, profileID: entry.profileID, localURL: url))
         } else if entry.state == .downloading || entry.state == .checking {
             actionsFor = entry
         } else {
-            playback = PlaybackRequest(anime: entry.anime, episode: entry.episode, profileID: entry.profileID)
+            play(PlaybackRequest(anime: entry.anime, episode: entry.episode, profileID: entry.profileID))
         }
     }
     private func actions(_ entry: EpisodeDownload) -> some View {
@@ -100,7 +99,7 @@ struct DownloadsView: View {
                 SheetRow(title: "Offline abspielen", icon: "play.fill") { actionsFor = nil; open(entry) }
             } else {
                 SheetRow(title: "Online öffnen", icon: "globe") {
-                    actionsFor = nil; playback = PlaybackRequest(anime: entry.anime, episode: entry.episode, profileID: entry.profileID)
+                    actionsFor = nil; play(PlaybackRequest(anime: entry.anime, episode: entry.episode, profileID: entry.profileID))
                 }
             }
             if entry.state == .downloading || entry.state == .checking {

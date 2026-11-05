@@ -50,10 +50,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Feinschliff: Bilder blenden weich ein, das Kopfbild der Detailseite dehnt sich beim Runterziehen, kurze Bestätigungen bei Watchlist und Downloads.
-          Downloads neu gestaltet: Vorschaubild, Fortschrittsring, Speicherübersicht und Optionen pro Folge.
-          Watchlist sortierbar (zuletzt hinzugefügt / A–Z), Suche merkt sich die letzten Suchbegriffe und schließt die Tastatur beim Scrollen.
+          Vollbild repariert: Im Querformat füllt das Video jetzt wirklich den ganzen Bildschirm, auch neben der Notch, und die Steuerung liegt richtig.
+          Behoben: Nach dem Drehen blieb manchmal nur das Video über der Startseite stehen. Der Player öffnet jetzt immer von einer festen Stelle aus und kann beim Drehen nicht mehr verloren gehen.
           Mit TrollStore als Update installieren, um lokale Daten zu behalten.
           NOTES
-          gh release create v0.9.2 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.2" --notes-file build/release-notes.md
+          gh release create v0.9.3 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.3" --notes-file build/release-notes.md
 

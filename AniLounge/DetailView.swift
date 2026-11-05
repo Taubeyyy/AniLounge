@@ -11,7 +11,6 @@ struct DetailView: View {
     @State private var error: String?
     @State private var episodeError: String?
     @State private var loadingEpisodes = false
-    @State private var playback: PlaybackRequest?
     @State private var editingProgress: Episode?
     @State private var actionsFor: Episode?
     @State private var expanded = false
@@ -41,7 +40,6 @@ struct DetailView: View {
         .task(id: selectedSeason) { if !selectedSeason.isEmpty { await loadSeason(selectedSeason) } }
         .task(id: detail?.imdb) { await loadExtras() }
         .task(id: (detail?.imdb ?? "") + selectedSeason) { await loadEpisodeExtras() }
-        .fullScreenCover(item: $playback) { request in PlaybackView(request: request, library: library) }
         .sheet(item: $editingProgress) { episode in ProgressEditor(anime: currentAnime, episode: episode, profileID: library.profile.id).environmentObject(library) }
         .loungeSheet(isPresented: Binding(get: { actionsFor != nil }, set: { if !$0 { actionsFor = nil } }), height: 250) {
             if let episode = actionsFor { episodeActions(episode) }
@@ -247,7 +245,7 @@ struct DetailView: View {
     private func open(_ episode: Episode) {
         guard AniURL.page(episode.path) != nil else { return }
         library.opened(episode, anime: currentAnime)
-        playback = PlaybackRequest(anime: currentAnime, episode: episode, profileID: library.profile.id)
+        PlaybackCenter.shared.open(PlaybackRequest(anime: currentAnime, episode: episode, profileID: library.profile.id), library: library)
     }
 }
 

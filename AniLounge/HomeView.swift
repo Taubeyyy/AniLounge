@@ -142,7 +142,6 @@ struct RecentShelf: View {
 }
 struct ContinueWatchingShelf: View {
     @EnvironmentObject private var library: LibraryStore
-    @State private var playback: PlaybackRequest?
     var body: some View {
         if !library.continueWatching.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
@@ -152,7 +151,7 @@ struct ContinueWatchingShelf: View {
                         ForEach(library.continueWatching) { item in
                             Button {
                                 library.opened(item.episode, anime: item.anime)
-                                playback = PlaybackRequest(anime: item.anime, episode: item.episode, profileID: library.profile.id)
+                                PlaybackCenter.shared.open(PlaybackRequest(anime: item.anime, episode: item.episode, profileID: library.profile.id), library: library)
                             } label: {
                                 VStack(alignment: .leading, spacing: 7) {
                                     ZStack(alignment: .bottom) {
@@ -178,7 +177,6 @@ struct ContinueWatchingShelf: View {
                     }.padding(.horizontal, 20)
                 }
             }
-            .fullScreenCover(item: $playback) { PlaybackView(request: $0, library: library) }
         }
     }
 }
