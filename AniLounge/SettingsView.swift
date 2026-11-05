@@ -112,6 +112,17 @@ struct SettingsView: View {
                     SettingsButton(title: "Verlauf löschen", icon: "clock.arrow.circlepath", destructive: true) { confirm = .history }
                     SettingsButton(title: "Fortschritt zurücksetzen", icon: "arrow.counterclockwise", destructive: true) { confirm = .progress }
                 }
+                SettingsSection(title: "Hilfe") {
+                    NavigationLink { DebugLogView() } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "ladybug.fill").font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
+                                .frame(width: 30, height: 30).background(Theme.panelHigh).clipShape(RoundedRectangle(cornerRadius: 8))
+                            Text("Diagnose-Protokoll").font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption.bold()).foregroundColor(Theme.muted)
+                        }.padding(.horizontal, 14).padding(.vertical, 11).contentShape(Rectangle())
+                    }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
+                }
                 SettingsSection(title: "Info") {
                     SettingsValue(title: "Version", icon: "app.badge.fill", value: AppInfo.version)
                     SettingsValue(title: "Daten von", icon: "square.stack.3d.up.fill", value: "AniWorld · AniList · ani.zip · AniSkip")

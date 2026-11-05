@@ -207,6 +207,7 @@ final class PlayerSurfaceView: UIView {
         if let host { triedHosts.insert(host.id) }
         handledEnd = false
         selectedHost = host; choosingHost = false; error = nil; preparing = true; startedAt = Date()
+        DebugLog.shared.add("player", "select \(host?.name ?? "AniWorld") \(host?.language ?? "") ep \(request.episode.number) of \(request.anime.title)")
         if remember, let host { UserDefaults.standard.set(["name": host.name, "language": host.language], forKey: preferenceKey) }
         revealTask?.cancel(); webRevealTask?.cancel(); offerWebPlayer = false; webPlaybackSeen = false
         revealTask = Task { @MainActor [weak self] in
@@ -243,6 +244,7 @@ final class PlayerSurfaceView: UIView {
     }
     func recover(_ reason: String) {
         guard !closed, !choosingHost else { return }
+        DebugLog.shared.add("player", "recover: " + reason)
         if isOffline { stopNative(); preparing = false; error = "Die lokale Datei konnte nicht abgespielt werden. Lade die Folge erneut herunter."; return }
         if let host = selectedHost, let replacement = PlaybackQueue.replacement(in: hosts, current: host, attempted: triedHosts) {
             let notice = reason + " Versuche " + replacement.name + " in " + replacement.language + "."
@@ -348,19 +350,26 @@ final class PlayerSurfaceView: UIView {
     }
     /// Lifts the loading screen and shows the hoster page, e.g. when it needs a tap.
     func showWebPlayer() {
+        DebugLog.shared.add("player", "web player shown")
         preparing = false; offerWebPlayer = false
         revealTask?.cancel(); webRevealTask?.cancel(); startupWatchdog?.cancel()
         status = "Webplayer · falls nötig im Video auf Play tippen."
     }
     /// The native player could not take the link. If the page already plays it, stay there.
     private func nativeFailed(_ reason: String) {
+        DebugLog.shared.add("player", "native failed: \(reason) item error: \(player?.currentItem?.error?.localizedDescription ?? "-")")
         if webPlaybackSeen && !isOffline {
             useWebPlayer(reason + " Die Folge läuft im Webplayer weiter.")
         } else { recover(reason) }
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard !closed, !choosingHost, let body = message.body as? [String: Any], body["token"] as? String == token else { return }
+        if body["kind"] as? String == "debug" {
+            if let text = body["text"] as? String { DebugLog.shared.add("web", String(text.prefix(200))) }
+            return
+        }
         if body["kind"] as? String == "source" {
+            DebugLog.shared.add("player", "source from page: " + ((body["url"] as? String).flatMap { URL(string: $0)?.host } ?? "?"))
             if let value = body["url"] as? String, let url = PlaybackSource.directURL(value) { mediaFrame = message.frameInfo; startNative(url) }
             return
         }
@@ -470,6 +479,7 @@ final class PlayerSurfaceView: UIView {
     private func activateNative(_ item: AVPlayerItem) {
         guard !nativeReady, !closed else { return }
         startupWatchdog?.cancel()
+        DebugLog.shared.add("player", "native ready after \(Int(Date().timeIntervalSince(startedAt))) s")
         nativeReady = true; preparing = false; offerWebPlayer = false; revealTask?.cancel(); webRevealTask?.cancel(); restoring = true; timeout?.cancel(); error = nil
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
@@ -657,6 +667,7 @@ final class PlayerSurfaceView: UIView {
         PlaybackCenter.shared.ended(self)
     }
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        DebugLog.shared.add("web", "page " + (webView.url?.host ?? "?"))
         guard !choosingHost, !nativeReady, webView.url?.scheme == "https" else { return }
         status = "Anbieter verbunden · Videolink wird gesucht …"
     }
@@ -666,6 +677,7 @@ final class PlayerSurfaceView: UIView {
         if player == nil { status = "Anbieter geladen · Video wird gestartet …" }
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        DebugLog.shared.add("web", "load failed \((error as NSError).code)")
         if (error as NSError).code != NSURLErrorCancelled {
             if (error as NSError).code == NSURLErrorNotConnectedToInternet {
                 useWebPlayer("Keine Internetverbindung."); self.error = "Du bist offline. Verbindung prüfen und erneut versuchen."
@@ -714,13 +726,15 @@ struct PlaybackView: View {
                 // Landscape: the stage fills the whole screen, edges included. Portrait: a 16:9 band
                 // across the full width. Only frame values change, never the view structure.
                 VStack(spacing: 0) {
-                    if !theater { topBar }
+                    if !theater { topBar.transition(.opacity) }
                     stage
                         .frame(maxWidth: .infinity, maxHeight: theater ? .infinity : nil)
                         .frame(height: theater ? nil : portraitVideoHeight)
                         .ignoresSafeArea(edges: theater ? .all : [])
-                    if !theater { infoPanel }
+                    if !theater { infoPanel.transition(.opacity) }
                 }
+                // Rotation: fade the panels and glide the video instead of jumping.
+                .animation(.easeInOut(duration: 0.3), value: theater)
                 if model.choosingHost {
                     VStack(spacing: 0) { topBar; hostPicker }.background(Theme.background.ignoresSafeArea())
                 }
@@ -803,6 +817,10 @@ struct PlaybackView: View {
                         Button { model.showWebPlayer() } label: {
                             Label("Webplayer zeigen", systemImage: "globe").font(.footnote.bold()).padding(.horizontal, 14).padding(.vertical, 9)
                                 .background(Color.white).foregroundColor(.black).clipShape(Capsule())
+                        }
+                        Button { model.retry() } label: {
+                            Label("Neu laden", systemImage: "arrow.clockwise").font(.footnote.bold()).padding(.horizontal, 14).padding(.vertical, 9)
+                                .background(.ultraThinMaterial).clipShape(Capsule())
                         }
                         Button { model.chooseHost() } label: {
                             Label("Andere Quelle", systemImage: "rectangle.stack").font(.footnote.bold()).padding(.horizontal, 14).padding(.vertical, 9)
@@ -1164,7 +1182,8 @@ private struct SkipOverlay: View {
         if let seconds = model.countdown, model.nextEpisode != nil { return .countdown(seconds) }
         guard let times = model.skipTimes, times.fits(duration: model.player?.currentItem?.duration.seconds) else { return .none }
         let now = clock.seconds
-        if let op = times.opening, now >= op.lowerBound - 1, now < op.upperBound - 3 { return .opening(op.upperBound) }
+        // With automatic skipping on, the opening is skipped for you; no button needed.
+        if let op = times.opening, !AppSettings.shared.autoSkipOpening, now >= op.lowerBound - 1, now < op.upperBound - 3 { return .opening(op.upperBound) }
         if let ed = times.ending, now >= ed.lowerBound, now < ed.upperBound - 3 { return .ending(ed.upperBound) }
         return .none
     }

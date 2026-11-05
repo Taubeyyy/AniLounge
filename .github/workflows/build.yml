@@ -50,13 +50,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Ladebildschirm: Die Anbieter-Seite mit ihrer Werbung bleibt verdeckt, bis unser Player das Video hat. Dauert es länger, gibt es „Webplayer zeigen“ und „Andere Quelle“.
-          Behoben: VOE-Streams wurden vom Autostart-Script versehentlich neu geladen und brachen ab.
-          Behoben: Läuft eine Folge im Webplayer, aber nicht im iOS-Player, bleibt sie jetzt dort statt die Quelle zu wechseln.
-          Behoben: Im Querformat fehlte beim Laden und im Webplayer ein Schließen-Knopf.
-          Behoben: Ruckeln auf der Downloads-Seite während laufender Downloads; alter Timer beim Folgenwechsel; doppelte Player bei Doppeltipp.
-          Der iOS-Player fragt Videos mit derselben Browser-Kennung an wie die Anbieter-Seite.
-          Mit TrollStore als Update installieren, um lokale Daten zu behalten.
+          Neu: Diagnose-Protokoll unter Ich > Einstellungen > Hilfe, zum Teilen wenn eine Quelle hängt.
+          Ladebildschirm mit Neu laden; Weiterschauen-Kacheln lassen sich per langem Druck entfernen oder als gesehen markieren.
+          Weicherer Übergang beim Drehen; bei automatischem Opening-Überspringen kein Skip-Knopf mehr.
           NOTES
-          gh release create v0.9.4 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.4" --notes-file build/release-notes.md
+          gh release create v0.9.5 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.5" --notes-file build/release-notes.md
 

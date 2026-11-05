@@ -62,13 +62,20 @@
             }
         }
     }
+    // Diagnostics for the in-app log: what this frame sees. Never includes full media URLs.
+    function debug(text) {
+        try { window.webkit.messageHandlers.aniProgress.postMessage({ token: config.token, kind: 'debug', text: location.host + ': ' + text }); } catch (_) {}
+    }
+    const kindOf = v => { const s = v.currentSrc || v.src || ''; return s.startsWith('blob:') ? 'blob' : s ? s.split('?')[0].split('.').pop().slice(0, 5) : 'none'; };
     function attach(v) {
         if (states.has(v)) return;
         states.set(v, { played: false, restored: false, source: null });
+        debug('video found src=' + kindOf(v) + ' ready=' + v.readyState + ' preload=' + (v.preload || '-'));
         v.addEventListener('playing', () => {
             if (!eligible(v)) return;
             if (primary && primary !== v && !primary.paused && primary.duration > v.duration) return;
             primary = v; states.get(v).played = true; restore(v); report(v, true);
+            debug('playing duration=' + Math.round(v.duration));
         });
         function tryStart() {
             restore(v);
@@ -76,14 +83,16 @@
             if (!config.autoPlay || state.autoAttempted || !eligible(v) || v.readyState < 1) return;
             if (primary && primary !== v) return;
             state.autoAttempted = true; primary = v; source(v);
+            debug('autoplay attempt duration=' + Math.round(v.duration));
             const promise = v.play();
-            if (promise && promise.catch) promise.catch(() => {});
+            if (promise && promise.catch) promise.catch(e => debug('autoplay refused: ' + (e && e.name)));
         }
         // Players with preload="none" never load metadata on their own: ask for it once.
         function wake() {
             const state = states.get(v);
             if (!config.autoPlay || state.woken || v.readyState > 0 || !hasSource(v) || managed(v)) return;
             state.woken = true;
+            debug('wake preload=' + v.preload);
             try { if (v.preload === 'none') v.preload = 'metadata'; if (typeof v.load === 'function') v.load(); } catch (_) {}
         }
         ['loadedmetadata', 'canplay', 'progress'].forEach(event => v.addEventListener(event, tryStart));
@@ -105,13 +114,15 @@
                 const state = states.get(v);
                 if (!state || state.autoAttempted || v.readyState > 0 || !hasSource(v) || managed(v)) return;
                 state.autoAttempted = true;
+                debug('fallback play src=' + kindOf(v));
                 const promise = v.play();
-                if (promise && promise.catch) promise.catch(() => {});
+                if (promise && promise.catch) promise.catch(e => debug('fallback refused: ' + (e && e.name)));
             });
         }, 1800);
         later(() => {
             if (primary || playing() || typeof document.querySelector !== 'function') return;
             const button = document.querySelector(PLAY_BUTTONS);
+            debug(button ? 'press play button ' + (button.className || button.tagName) : 'no play button, ' + document.querySelectorAll('video').length + ' videos');
             if (button && !(button.closest && button.closest('a')) && typeof button.click === 'function') button.click();
         }, 3600);
     }

@@ -173,6 +173,10 @@ struct ContinueWatchingShelf: View {
                                         .font(.caption.monospacedDigit()).foregroundColor(Theme.muted)
                                 }.frame(width: 230)
                             }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
+                                .contextMenu {
+                                    Button { library.setWatched(true, episode: item.episode, anime: item.anime) } label: { Label("Als gesehen markieren", systemImage: "checkmark") }
+                                    Button(role: .destructive) { library.setWatched(false, episode: item.episode, anime: item.anime) } label: { Label("Aus Weiterschauen entfernen", systemImage: "xmark") }
+                                }
                         }
                     }.padding(.horizontal, 20)
                 }
