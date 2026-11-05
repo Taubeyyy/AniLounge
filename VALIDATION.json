@@ -1,8 +1,8 @@
 {
-  "version": "0.9.2",
-  "verified_date": "2026-11-01",
-  "source_commit": "ec5738d3dcffc1766ca2ee229e578960d20c4c37",
-  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/41317447221",
+  "version": "0.9.3",
+  "verified_date": "2026-11-05",
+  "source_commit": "d624b4255a5f9bf3f2eb46ff4d34363b7f6dc967",
+  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/42013541241",
   "swift_core_tests": 33,
   "javascript_tests": 11,
   "ios_simulator_tests": 7,
@@ -10,7 +10,7 @@
   "webkit_rule_compilation": "passed",
   "ios_build": "success",
   "ipa_validation": "passed",
-  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.2",
+  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.3",
   "ipa_bytes": 1243895,
   "downloads": {
     "implemented": [
@@ -57,6 +57,7 @@
     "VOE start through JW Player API",
     "Custom player gestures and rotation on iPhone",
     "PiP from AVPlayerLayer and lock screen controls",
-    "Portrait lock outside the player"
+    "Portrait lock outside the player",
+    "Landscape full screen after the 0.9.3 layout change"
   ]
 }
