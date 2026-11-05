@@ -28,7 +28,7 @@ import AniCore
         preferredLanguage = defaults.string(forKey: "playback.language") ?? "DE"
         preferredHoster = defaults.string(forKey: "playback.hoster") ?? "VOE"
         wifiOnlyDownloads = defaults.bool(forKey: "downloads.wifiOnly")
-        heroAutoAdvance = defaults.object(forKey: "home.heroAutoAdvance") as? Bool ?? true
+        heroAutoAdvance = defaults.object(forKey: "home.heroAutoAdvance") as? Bool ?? false
     }
     /// A new default should win over the source each profile remembered last.
     private func forgetRememberedSources() {

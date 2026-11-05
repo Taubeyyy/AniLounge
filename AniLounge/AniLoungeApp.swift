@@ -14,7 +14,7 @@ struct RootView: View {
     @EnvironmentObject private var library: LibraryStore
     @ObservedObject private var playback = PlaybackCenter.shared
     @State private var selected = 0
-    private let tabs = [("Entdecken", "sparkles"), ("Suche", "magnifyingglass"), ("Watchlist", "bookmark.fill"), ("Downloads", "arrow.down.circle.fill"), ("Ich", "person.crop.circle.fill")]
+    private let tabs = [("Start", "house.fill"), ("Suche", "magnifyingglass"), ("Watchlist", "bookmark.fill"), ("Downloads", "arrow.down.circle.fill"), ("Profil", "person.crop.circle.fill")]
     var body: some View {
         TabView(selection: $selected) {
             NavigationStack { HomeView() }.tag(0)
@@ -56,7 +56,7 @@ struct LoungeTabBar: View {
                 } label: {
                     VStack(spacing: 4) {
                         Image(systemName: tabs[index].1).font(.system(size: 19, weight: .semibold))
-                        Text(tabs[index].0).font(.system(size: 10, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.8)
+                        Text(tabs[index].0).font(.caption2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
                     }.frame(maxWidth: .infinity).padding(.vertical, 10)
                         .foregroundColor(selected == index ? .white : Theme.muted)
                         .background {
@@ -143,12 +143,12 @@ struct HomeSkeleton: View {
     }
 }
 enum Theme {
-    static let background = Color(red: 0.055, green: 0.035, blue: 0.09)
-    static let panel = Color(red: 0.12, green: 0.075, blue: 0.18)
-    static let panelHigh = Color(red: 0.17, green: 0.11, blue: 0.25)
+    static let background = Color(red: 0.045, green: 0.04, blue: 0.065)
+    static let panel = Color(red: 0.105, green: 0.09, blue: 0.14)
+    static let panelHigh = Color(red: 0.155, green: 0.13, blue: 0.205)
     static let accent = Color(red: 0.66, green: 0.38, blue: 0.96)
     static let accentSoft = Color(red: 0.80, green: 0.64, blue: 1.0)
-    static let muted = Color.white.opacity(0.55)
+    static let muted = Color.white.opacity(0.70)
     static let stroke = Color.white.opacity(0.08)
     static let accentGradient = LinearGradient(colors: [Color(red: 0.74, green: 0.42, blue: 1.0), Color(red: 0.52, green: 0.30, blue: 0.92)], startPoint: .topLeading, endPoint: .bottomTrailing)
 }
@@ -186,7 +186,7 @@ struct PosterCard: View {
                     }
                 }
                 .shadow(color: .black.opacity(0.4), radius: 10, y: 6)
-            Text(anime.title).font(.caption.weight(.semibold)).lineLimit(2).frame(height: 34, alignment: .topLeading)
+            Text(anime.title).font(.caption.weight(.semibold)).lineLimit(3).fixedSize(horizontal: false, vertical: true)
         }.frame(width: width).foregroundColor(.white)
     }
 }

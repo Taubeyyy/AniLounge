@@ -56,11 +56,19 @@ Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Ap
 
 **Buildstatus:** Die Ergebnisse für den jeweiligen Commit stehen in [GitHub Actions](https://github.com/Taubeyyy/AniLounge/actions). Der Release-Workflow veröffentlicht die IPA erst nach erfolgreichen Core-, Webtracker- und iOS-Tests sowie Paketprüfung. `VALIDATION.json` dokumentiert einen älteren Prüfstand mit eigener Versionsangabe. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
 
-[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.9.7/AniLounge.ipa) · [Release 0.9.7](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.7)
+[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.9.8/AniLounge.ipa) · [Release 0.9.8](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.8)
 
 [Builds und IPA-Artefakte](https://github.com/Taubeyyy/AniLounge/actions)
 
 Unter **Artifacts → AniLounge-TrollStore** herunterladen, ZIP in der Dateien-App entpacken und `AniLounge.ipa` über **Teilen → TrollStore** öffnen. Als Update über die vorhandene App installieren, damit lokale Daten erhalten bleiben. GitHub-Artefakte dieses Workflows werden nach 14 Tagen gelöscht.
+
+## Design und Bedienung in 0.9.8
+
+Ruhigere dunkle Flächen, besser lesbare Nebeninformationen und eine kompaktere Startkarte erhalten den lila Stil. „Start“ und „Profil“ benennen die Navigation eindeutig; „Details“ auf der Startkarte beschreibt das tatsächliche Ziel. Der automatische Kartenwechsel ist für neue Einstellungen ausgeschaltet.
+
+Größere Trefferflächen, skalierende Kartentitel und stapelnde Folgen-/Downloadzeilen erleichtern die Bedienung mit großer Schrift. Aktionsmenüs lassen sich scrollen und auf volle Höhe ziehen. Die Suche schließt die Tastatur beim Absenden. Fehlgeschlagene Downloads öffnen zuerst ihre Aktionen.
+
+Der Player verwendet die verfügbare Fensterbreite und bietet auf dem iPad einen Vollbildschalter. Zeitleiste, Springen und Wiedergabe erhalten größere Bedienelemente. Bei VoiceOver oder geöffneten Player-Einstellungen werden die Steuerungen nicht automatisch ausgeblendet. Simulator-Aufnahmen prüfen schmale und große Layouts; echte Geräte bleiben für die abschließende Bedienprüfung notwendig.
 
 ## Überarbeitete Kernabläufe
 

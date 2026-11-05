@@ -3,6 +3,7 @@ import AniCore
 
 struct SearchView: View {
     @State private var catalog: [Anime] = []
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var query = ""
     @State private var error: String?
     @State private var loading = false
@@ -24,11 +25,11 @@ struct SearchView: View {
                 HStack(spacing: 12) {
                     Image(systemName: "magnifyingglass").foregroundColor(Theme.muted)
                     TextField("Titel, auch japanisch", text: $query).textInputAutocapitalization(.never)
-                        .submitLabel(.search).focused($focused).onSubmit { remember(query) }
+                        .submitLabel(.search).focused($focused).onSubmit { remember(query); focused = false }
                     if !query.isEmpty {
-                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(Theme.muted) }.accessibilityLabel("Suche löschen")
+                        Button { query = "" } label: { Image(systemName: "xmark.circle.fill").foregroundColor(Theme.muted).frame(width: 44, height: 44).contentShape(Rectangle()) }.accessibilityLabel("Suche löschen")
                     }
-                }.padding(.horizontal, 14).padding(.vertical, 12).background(Theme.panelHigh).clipShape(RoundedRectangle(cornerRadius: 12))
+                }.padding(.leading, 16).padding(.trailing, 4).frame(minHeight: 56).background(Theme.panelHigh).clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(focused ? Theme.accent.opacity(0.7) : .clear, lineWidth: 1.5))
                     .animation(.easeOut(duration: 0.15), value: focused)
                 if query.isEmpty && !recent.isEmpty {
@@ -36,13 +37,13 @@ struct SearchView: View {
                         HStack {
                             Text("Zuletzt gesucht").font(.caption.bold()).foregroundColor(Theme.muted)
                             Spacer()
-                            Button("Leeren") { withAnimation { recentStore = "" } }.font(.caption.bold()).foregroundColor(Theme.accentSoft)
+                            Button("Leeren") { withAnimation { recentStore = "" } }.font(.caption.bold()).foregroundColor(Theme.accentSoft).frame(minHeight: 44)
                         }
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
                                 ForEach(recent, id: \.self) { term in
-                                    Button { query = term } label: {
-                                        Label(term, systemImage: "clock.arrow.circlepath").font(.footnote.weight(.semibold)).padding(.horizontal, 12).padding(.vertical, 8)
+                                    Button { query = term; focused = false } label: {
+                                        Label(term, systemImage: "clock.arrow.circlepath").font(.footnote.weight(.semibold)).padding(.horizontal, 12).frame(minHeight: 44)
                                             .background(Theme.panel).clipShape(Capsule()).overlay(Capsule().stroke(Theme.stroke))
                                     }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
                                 }
@@ -52,7 +53,7 @@ struct SearchView: View {
                 }
                 if let error { ProblemView(message: error) { Task { await load() } } }
                 else if loading {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12)], spacing: 18) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 150 : 104), spacing: 12)], spacing: 18) {
                         ForEach(0..<12, id: \.self) { _ in RoundedRectangle(cornerRadius: 12).fill(Theme.panel).aspectRatio(2 / 3, contentMode: .fit).shimmer() }
                     }.padding(.top, 16)
                 }
@@ -66,7 +67,7 @@ struct SearchView: View {
                             Text("Versuch einen anderen Titel oder den japanischen Namen.").font(.subheadline).foregroundColor(Theme.muted)
                         }.frame(maxWidth: .infinity).padding(.vertical, 40)
                     }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12, alignment: .top)], spacing: 18) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 150 : 104), spacing: 12, alignment: .top)], spacing: 18) {
                         ForEach(results) { anime in
                             NavigationLink { DetailView(anime: anime) } label: { GridPoster(anime: anime) }.buttonStyle(LoungePressStyle())
                                 .simultaneousGesture(TapGesture().onEnded { if !query.isEmpty { remember(query) } })
@@ -103,11 +104,12 @@ struct GridPoster: View {
                         Image(systemName: "bookmark.fill").font(.caption2.bold()).padding(5).background(Theme.accent).clipShape(Circle()).padding(5)
                     }
                 }
-            Text(anime.title).font(.caption.weight(.semibold)).lineLimit(2).frame(height: 32, alignment: .topLeading).foregroundColor(.white)
+            Text(anime.title).font(.caption.weight(.semibold)).lineLimit(3).fixedSize(horizontal: false, vertical: true).foregroundColor(.white)
         }
     }
 }
 struct SavedView: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     @EnvironmentObject private var library: LibraryStore
     @AppStorage("watchlist.sort") private var sortByTitle = false
     private var items: [Anime] {
@@ -119,7 +121,7 @@ struct SavedView: View {
                 HStack(spacing: 8) {
                     ForEach([false, true], id: \.self) { byTitle in
                         Button { withAnimation(.easeInOut(duration: 0.2)) { sortByTitle = byTitle } } label: {
-                            Text(byTitle ? "A–Z" : "Zuletzt hinzugefügt").font(.footnote.bold()).padding(.horizontal, 14).padding(.vertical, 8)
+                            Text(byTitle ? "A–Z" : "Zuletzt hinzugefügt").font(.footnote.bold()).padding(.horizontal, 14).frame(minHeight: 44)
                                 .background(sortByTitle == byTitle ? AnyShapeStyle(Color.white) : AnyShapeStyle(Theme.panelHigh))
                                 .foregroundColor(sortByTitle == byTitle ? .black : .white).clipShape(Capsule())
                         }.buttonStyle(LoungePressStyle())
@@ -135,7 +137,7 @@ struct SavedView: View {
                     Text("Tippe bei einem Anime auf „Watchlist“, um ihn hier zu speichern.").foregroundColor(.secondary).multilineTextAlignment(.center)
                 }.padding(36).padding(.top, 60).frame(maxWidth: .infinity)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12, alignment: .top)], spacing: 18) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 150 : 104), spacing: 12, alignment: .top)], spacing: 18) {
                     ForEach(items) { anime in
                         NavigationLink { DetailView(anime: anime) } label: { GridPoster(anime: anime) }
                             .buttonStyle(LoungePressStyle())

@@ -31,6 +31,7 @@ import AniCore
     func toggleWatchlist(_ anime: Anime) {
         let adding = !contains(anime)
         toggle(anime)
+        guard contains(anime) == adding else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         ToastCenter.shared.show(adding ? "Zur Watchlist hinzugefügt" : "Von der Watchlist entfernt", icon: adding ? "bookmark.fill" : "bookmark.slash")
     }

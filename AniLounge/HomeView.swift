@@ -27,6 +27,9 @@ struct HomeView: View {
             }
         } leading: {
             LoungeLogo()
+        } trailing: {
+            NavigationLink { ProfileView() } label: { CircleIcon(systemName: library.profile.avatar) }
+                .accessibilityLabel("Profil: \(library.profile.name)")
         }
         .task { if feed == nil { await load() } }
         .task(id: library.profile.id) { await SeriesCatalogStore.shared.refreshContinuations(library.active) }
@@ -47,6 +50,7 @@ struct HomeView: View {
 struct HeroCarousel: View {
     let items: [Anime]
     @State private var page = 0
+    @ScaledMetric(relativeTo: .title) private var heroHeight = 360
     @ObservedObject private var settings = AppSettings.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -61,9 +65,11 @@ struct HeroCarousel: View {
                     }
                 }.padding(.bottom, 2).animation(.spring(response: 0.3), value: page).accessibilityHidden(true)
             }
-            .frame(height: 540)
+            .frame(height: min(heroHeight, 520)).clipShape(RoundedRectangle(cornerRadius: 24))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.stroke))
+            .padding(.horizontal, 20)
             // Gentle auto-advance like streaming apps; a manual swipe restarts the timer.
-            .task(id: page) {
+            .task(id: "\(page)|\(settings.heroAutoAdvance)|\(reduceMotion)|\(items.count)") {
                 guard !reduceMotion, settings.heroAutoAdvance, items.count > 1 else { return }
                 try? await Task.sleep(nanoseconds: 8_000_000_000)
                 guard !Task.isCancelled else { return }
@@ -82,11 +88,11 @@ struct HeroView: View {
                                    .init(color: Theme.background.opacity(0.35), location: 0.55), .init(color: Theme.background, location: 0.95)],
                            startPoint: .top, endPoint: .bottom)
             VStack(spacing: 16) {
-                Text(anime.title).font(.system(size: 30, weight: .heavy, design: .rounded)).multilineTextAlignment(.center)
-                    .lineLimit(2).minimumScaleFactor(0.75).shadow(color: .black.opacity(0.5), radius: 10)
+                Text(anime.title).font(.system(.title, design: .rounded).weight(.heavy)).multilineTextAlignment(.center)
+                    .lineLimit(3).minimumScaleFactor(0.85).shadow(color: .black.opacity(0.5), radius: 10)
                 HStack(spacing: 12) {
                     NavigationLink { DetailView(anime: anime) } label: {
-                        Label("Ansehen", systemImage: "play.fill").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 13)
+                        Label("Details", systemImage: "info.circle").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 13)
                             .background(Color.white).foregroundColor(.black).clipShape(RoundedRectangle(cornerRadius: 10))
                     }.buttonStyle(LoungePressStyle())
                     Button { library.toggleWatchlist(anime) } label: {
@@ -104,7 +110,7 @@ struct InfoView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("AniLounge 0.8") {
+                Section("AniLounge " + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")) {
                     Text("Dein persönlicher Anime-Browser für iPhone und iPad.")
                     Text("Katalog, Suche, Watchlist und Anbieterauswahl sind nativ. Erkannte MP4-/HLS-Links laufen im iOS-Player mit Bild-in-Bild; der Webplayer bleibt als Alternative verfügbar.")
                 }

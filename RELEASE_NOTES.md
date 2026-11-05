@@ -1,13 +1,14 @@
-# AniLounge 0.9.7 · Build 18
+# AniLounge 0.9.8 · Build 19
 
-- „Weiterschauen“ lässt sich ausblenden, ohne Fortschritt, Verlauf oder Gesehen-Markierungen zu verlieren.
-- Fehlt die bevorzugte Sprachfassung, wartet die Wiedergabe auf deine Auswahl – auch beim Autoplay. Der automatische Anbieterwechsel bleibt innerhalb derselben Fassung.
-- Laufende Downloads werden erst nach Rückmeldung aller Hintergrundsessions wiederhergestellt oder als unterbrochen markiert. Das behebt falsche Abbrüche zwischen den beiden HLS-Sessions.
-- Startseite, Detailseite und Player nutzen dieselbe Logik für Fortsetzen, nächste ungesehene Folge, Staffelwechsel und das Ende bekannter Folgen. Eine Folge zählt erst beim tatsächlichen Ende oder nach manueller Markierung als gesehen.
-- Persönliche Startseitenreihen bleiben bei Katalogfehlern sichtbar. Passende gespeicherte Folgen starten ohne Online-Katalog; abweichende oder unbekannte Downloadsprachen erfordern eine Bestätigung.
+- Ruhigere dunkle Oberfläche, stärkere Textkontraste und kompaktere Startkarten.
+- Klare Navigation mit „Start“ und „Profil“, direkter Profilzugang und passend beschriftetem „Details“-Button.
+- Größere Trefferflächen und besser lesbare Kartentitel. Folgen und Downloads passen sich großer Schrift an.
+- Scrollbare Aktionsmenüs mit zusätzlicher großer Darstellung; ausklappbare Beschreibung mit eigenem Button.
+- Suche mit komfortabler Tastaturbedienung; fehlgeschlagene Downloads öffnen zuerst ihre Aktionen.
+- Player-Größe folgt dem App-Fenster, iPad erhält einen Vollbildschalter. Größere Zeitleiste und Wiedergabebuttons.
+- Player-Steuerung bleibt bei VoiceOver und geöffneten Einstellungen sichtbar.
+- Der automatische Startkartenwechsel ist für neue Einstellungen ausgeschaltet. Vorhandene persönliche Einstellungen bleiben erhalten.
 
-Geprüft im Release-Workflow: 48 Core-Tests, 12 Webtracker-Tests, 12 iOS-Simulatortests, WebKit-Regelkompilierung, iOS-Build und IPA-Paketprüfung.
+Die fünf Korrekturen aus 0.9.7 bleiben enthalten. Simulator-Aufnahmen dienen zur Layoutprüfung auf schmalen Displays, bei großer Schrift und im Querformat.
 
-Installation: `AniLounge.ipa` herunterladen und mit TrollStore als Update über die vorhandene App installieren. Lokale Profile und Downloads werden weiterverwendet.
-
-Noch auf einem echten Gerät zu prüfen: Anbieterwiedergabe, HLS-Transfers und Wiederherstellung nach App-Neustart, Flugmodus, Bild-in-Bild und TrollStore-Update. Die Simulatorprüfungen ersetzen diese Gerätetests nicht.
+Installation: AniLounge.ipa mit TrollStore als Update über die vorhandene App installieren. Profile und Downloads bleiben erhalten. Abschließende Bedien-, VoiceOver-, PiP- und Anbieterprüfungen auf einem echten iPhone/iPad stehen noch aus.

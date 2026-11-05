@@ -130,9 +130,10 @@ struct DetailView: View {
             }.foregroundColor(.white)
             VStack(alignment: .leading, spacing: 10) {
                 if !detail.synopsis.isEmpty {
-                    Text(detail.synopsis).font(.subheadline).foregroundColor(.white.opacity(0.8)).lineSpacing(4).lineLimit(expanded ? nil : 3)
-                        .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() } }
-                    if !expanded { Text("Mehr").font(.caption.bold()).foregroundColor(Theme.accentSoft).onTapGesture { withAnimation { expanded = true } } }
+                    Text(detail.synopsis).font(.subheadline).foregroundColor(.white.opacity(0.85)).lineSpacing(4).lineLimit(expanded ? nil : 3)
+                    Button(expanded ? "Weniger anzeigen" : "Mehr lesen") { expanded.toggle() }
+                        .font(.subheadline.bold()).foregroundColor(Theme.accentSoft).frame(minHeight: 44)
+                        .accessibilityValue(expanded ? "Aufgeklappt" : "Eingeklappt")
                 }
                 if let studio = extras?.studio { InfoLine(icon: "building.2", text: "Studio: \(studio)") }
                 if let episode = extras?.nextEpisode, let date = extras?.nextAiring, date > Date() {
@@ -281,6 +282,7 @@ enum SeasonNumber {
     }
 }
 struct EpisodeRow: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let episode: Episode
     let info: EpisodeExtras?
     let title: String
@@ -292,7 +294,8 @@ struct EpisodeRow: View {
     var body: some View {
         HStack(spacing: 14) {
             Button(action: play) {
-                HStack(spacing: 14) {
+                let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+                layout {
                     ZStack {
                         if let still = info?.image { Artwork(url: still) }
                         else {
@@ -306,7 +309,7 @@ struct EpisodeRow: View {
                             ProgressBar(value: fraction, track: .black.opacity(0.4), height: 3).frame(maxHeight: .infinity, alignment: .bottom)
                         }
                     }
-                    .frame(width: 128, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
+                    .frame(width: typeSize.isAccessibilitySize ? nil : 104, height: typeSize.isAccessibilitySize ? 132 : 64).clipShape(RoundedRectangle(cornerRadius: 8))
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(current ? Theme.accent : Theme.stroke, lineWidth: current ? 2 : 1))
                     .overlay(alignment: .topTrailing) {
                         if seen {
@@ -317,7 +320,7 @@ struct EpisodeRow: View {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("Folge \(episode.number)").font(.caption.bold()).foregroundColor(current ? Theme.accentSoft : Theme.muted)
                         Text(title).font(.subheadline.bold()).foregroundColor(seen ? .white.opacity(0.6) : .white)
-                            .multilineTextAlignment(.leading).lineLimit(2)
+                            .multilineTextAlignment(.leading).lineLimit(typeSize.isAccessibilitySize ? nil : 3)
                         HStack(spacing: 6) {
                             if let runtime = info?.runtime { Text("\(runtime) Min").font(.caption2).foregroundColor(Theme.muted) }
                             LanguageChips(languages: episode.languages)
@@ -327,7 +330,7 @@ struct EpisodeRow: View {
                 }.contentShape(Rectangle())
             }.buttonStyle(LoungePressStyle())
             Button(action: more) {
-                Image(systemName: "ellipsis").font(.body.weight(.bold)).foregroundColor(Theme.muted).frame(width: 30, height: 44).contentShape(Rectangle())
+                Image(systemName: "ellipsis").font(.body.weight(.bold)).foregroundColor(Theme.muted).frame(width: 44, height: 44).contentShape(Rectangle())
             }.accessibilityLabel("Optionen für Folge \(episode.number)")
         }
     }

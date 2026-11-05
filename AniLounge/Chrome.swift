@@ -26,6 +26,7 @@ struct LoungeScroll<Content: View, Leading: View, Trailing: View>: View {
     let leading: Leading
     let trailing: Trailing
     @State private var scrolled = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     init(title: String, largeTitle: Bool = false, underBar: Bool = false, threshold: CGFloat = 40,
          @ViewBuilder content: () -> Content, @ViewBuilder leading: () -> Leading, @ViewBuilder trailing: () -> Trailing) {
         self.title = title; self.largeTitle = largeTitle; self.underBar = underBar; self.threshold = threshold
@@ -38,7 +39,7 @@ struct LoungeScroll<Content: View, Leading: View, Trailing: View>: View {
                     GeometryReader { Color.clear.preference(key: ScrollOffsetKey.self, value: -$0.frame(in: .named("lounge.scroll")).minY) }.frame(height: 0)
                     if !underBar { Color.clear.frame(height: 50) }
                     if largeTitle {
-                        Text(title).font(.system(size: 34, weight: .heavy, design: .rounded)).padding(.horizontal, 20).padding(.bottom, 10)
+                        Text(title).font(.system(.largeTitle, design: .rounded).weight(.heavy)).padding(.horizontal, 20).padding(.bottom, 10)
                             .accessibilityAddTraits(.isHeader)
                     }
                     content
@@ -48,7 +49,7 @@ struct LoungeScroll<Content: View, Leading: View, Trailing: View>: View {
             .ignoresSafeArea(edges: underBar ? .top : [])
             .onPreferenceChange(ScrollOffsetKey.self) { offset in
                 let passed = offset > threshold
-                if passed != scrolled { withAnimation(.easeOut(duration: 0.2)) { scrolled = passed } }
+                if passed != scrolled { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { scrolled = passed } }
             }
             LoungeTopBar(solid: scrolled, title: title, leading: { leading }, trailing: { trailing })
         }
@@ -96,7 +97,7 @@ struct CircleIcon: View {
     var body: some View {
         Image(systemName: systemName).font(.system(size: 15, weight: .bold)).foregroundColor(.white)
             .frame(width: 38, height: 38).background(.ultraThinMaterial, in: Circle()).overlay(Circle().stroke(.white.opacity(0.12)))
-            .contentShape(Circle())
+            .frame(width: 48, height: 48).contentShape(Rectangle())
     }
 }
 struct BackButton: View {
@@ -158,8 +159,8 @@ struct LanguageChips: View {
 extension View {
     func loungeSheet<Sheet: View>(isPresented: Binding<Bool>, height: CGFloat, @ViewBuilder content: @escaping () -> Sheet) -> some View {
         sheet(isPresented: isPresented) {
-            content().padding(.top, 14)
-                .presentationDetents([.height(height)])
+            ScrollView { content().padding(.top, 18).padding(.bottom, 24) }
+                .presentationDetents([.height(height), .large])
                 .presentationDragIndicator(.visible)
                 .presentationBackground(Theme.background)
                 .presentationCornerRadius(28)

@@ -26,7 +26,21 @@ jobs:
           swift "$RUNNER_TEMP/check-content-rules.swift"
       - name: iOS regression tests
         timeout-minutes: 15
-        run: bash scripts/test-ios.sh
+        run: TEST_RESULT_BUNDLE=build/iOS-Tests.xcresult bash scripts/test-ios.sh
+      - name: Export simulator screenshots
+        if: always()
+        run: |
+          mkdir -p build/screenshots
+          if [ -d build/iOS-Tests.xcresult ]; then
+            xcrun xcresulttool export attachments --path build/iOS-Tests.xcresult --output-path build/screenshots
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: AniLounge-simulator-screenshots
+          path: build/screenshots
+          if-no-files-found: warn
+          retention-days: 14
       - name: Build and validate IPA
         run: bash scripts/build-ipa.sh
       - uses: actions/upload-artifact@v4
