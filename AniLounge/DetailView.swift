@@ -5,6 +5,8 @@ struct DetailView: View {
     let anime: Anime
     var resumeEpisode: Episode? = nil
     @EnvironmentObject private var library: LibraryStore
+    @ObservedObject private var catalogs = SeriesCatalogStore.shared
+    @State private var continuationError: String?
     @State private var detail: AnimeDetail?
     @State private var episodes: [Episode] = []
     @State private var selectedSeason = ""
@@ -39,6 +41,7 @@ struct DetailView: View {
         .task { if detail == nil { await loadDetail() } }
         .task(id: selectedSeason) { if !selectedSeason.isEmpty { await loadSeason(selectedSeason) } }
         .task(id: detail?.imdb) { await loadExtras() }
+        .task(id: continuationKey) { if detail != nil { await resolveContinuation() } }
         .task(id: (detail?.imdb ?? "") + selectedSeason) { await loadEpisodeExtras() }
         .sheet(item: $editingProgress) { episode in ProgressEditor(anime: currentAnime, episode: episode, profileID: library.profile.id).environmentObject(library) }
         .loungeSheet(isPresented: Binding(get: { actionsFor != nil }, set: { if !$0 { actionsFor = nil } }), height: 250) {
@@ -97,6 +100,22 @@ struct DetailView: View {
                     }.padding(.horizontal, 18).padding(.vertical, 14)
                         .background(Color.white).foregroundColor(.black).clipShape(RoundedRectangle(cornerRadius: 12))
                 }.buttonStyle(LoungePressStyle())
+            } else {
+                switch primaryDecision {
+                case .caughtUp:
+                    Label("Alle bekannten Folgen gesehen", systemImage: "checkmark.circle")
+                        .font(.headline).foregroundColor(Theme.accentSoft)
+                case .unavailable:
+                    Text("Die gemerkte Folge ist nicht mehr in der geladenen Folgenliste. Wähle unten eine Folge.")
+                        .font(.subheadline).foregroundColor(Theme.muted)
+                default:
+                    if let continuationError {
+                        Text(continuationError).font(.footnote).foregroundColor(.orange)
+                        Button("Weitere Folgen prüfen") { Task { await resolveContinuation() } }
+                    } else {
+                        ProgressView("Weitere Folgen werden geprüft …").tint(Theme.accent)
+                    }
+                }
             }
             HStack(spacing: 0) {
                 ActionColumn(title: "Watchlist", icon: library.contains(currentAnime) ? "checkmark" : "plus") {
@@ -200,24 +219,27 @@ struct DetailView: View {
         guard let loaded = try? await MetadataClient.shared.episodes(imdb: imdb, season: number), !Task.isCancelled else { return }
         withAnimation(.easeOut(duration: 0.2)) { episodeExtras = loaded }
     }
-    /// Netflix-style main button: resume, next unwatched episode, or start from the beginning.
+    private var primaryDecision: SeriesPlaybackDecision {
+        SeriesPlaybackState.start(anime: currentAnime, profile: library.active, catalog: catalogs.catalogs[currentAnime.id])
+    }
+    private var continuationKey: String {
+        let latest = library.active.latest(for: currentAnime)
+        return "\(detail?.anime.id ?? "")|\(latest?.episode.id ?? "")|\(latest?.completed ?? false)|\(library.watched.count)"
+    }
+    private func resolveContinuation() async {
+        continuationError = nil
+        do { _ = try await catalogs.resolveStart(anime: currentAnime, profile: library.active) }
+        catch { if !Task.isCancelled { continuationError = "Weitere Folgen konnten nicht geprüft werden. Deine gespeicherten Daten bleiben erhalten." } }
+    }
     private var primaryAction: (episode: Episode, title: String, detail: String?, fraction: Double?)? {
-        if let progress = library.active.latest(for: currentAnime) {
-            if !progress.isFinished, progress.seconds > 0 {
-                let left = (progress.duration ?? progress.seconds) - progress.seconds
-                return (progress.episode, "Weiterschauen · Folge \(progress.episode.number)", "noch " + EpisodeProgress.format(max(0, left)), progress.fraction)
-            }
-            if let index = episodes.firstIndex(where: { $0.id == progress.episode.id }), episodes.indices.contains(index + 1) {
-                let next = episodes[index + 1]
-                return (next, "Folge \(next.number) abspielen", nil, nil)
-            }
+        switch primaryDecision {
+        case .resume(let progress):
+            let remaining = progress.duration.map { "noch " + EpisodeProgress.format(max(0, $0 - progress.seconds)) }
+            return (progress.episode, "Weiterschauen · Folge \(progress.episode.number)", remaining, progress.fraction)
+        case .play(let episode):
+            return (episode, "Folge \(episode.number) abspielen", nil, nil)
+        default: return nil
         }
-        guard !loadingEpisodes else { return nil }
-        if let next = episodes.first(where: { !isSeen($0) }), next.id != episodes.first?.id {
-            return (next, "Folge \(next.number) abspielen", nil, nil)
-        }
-        guard let first = episodes.first else { return nil }
-        return (first, "Folge \(first.number) abspielen", nil, nil)
     }
     private func loadDetail() async {
         error = nil
@@ -225,6 +247,7 @@ struct DetailView: View {
             let loaded = try await AniClient.shared.detail(path: anime.path)
             guard !Task.isCancelled else { return }
             detail = loaded; episodes = loaded.episodes
+            catalogs.remember(loaded, path: anime.path, isRoot: true)
             let remembered = resumeEpisode ?? library.active.latest(for: anime)?.episode ?? library.history.first(where: { $0.id == anime.id })?.episode
             selectedSeason = loaded.seasons.first(where: { remembered?.path.hasPrefix($0.path + "/") == true })?.path
                 ?? loaded.seasons.first(where: { loaded.episodes.first?.path.hasPrefix($0.path + "/") == true })?.path ?? loaded.seasons.first?.path ?? ""
@@ -237,6 +260,7 @@ struct DetailView: View {
             let loaded = try await AniClient.shared.detail(path: path)
             guard !Task.isCancelled, selectedSeason == path else { return }
             episodes = loaded.episodes; loadingEpisodes = false
+            catalogs.remember(loaded, path: path, isRoot: false)
         } catch {
             guard !Task.isCancelled, selectedSeason == path else { return }
             episodeError = error.localizedDescription; loadingEpisodes = false

@@ -29,6 +29,15 @@ struct RootView: View {
         .overlay(alignment: .top) { ToastHost() }
         // Every episode opens here, and so does a restored Picture in Picture window.
         .fullScreenCover(item: $playback.presented) { PlaybackView(model: $0) }
+        .confirmationDialog("Gespeicherte Sprachfassung", isPresented: Binding(
+            get: { playback.pendingOffline != nil }, set: { if !$0 { playback.pendingOffline = nil } }),
+            titleVisibility: .visible, presenting: playback.pendingOffline) { prompt in
+                Button("Diese Fassung offline ansehen") { playback.confirmOffline(prompt) }
+                Button("Online-Quelle wählen") { playback.chooseOnline(prompt) }
+                Button("Abbrechen", role: .cancel) { playback.pendingOffline = nil }
+            } message: { prompt in
+                Text("Die gespeicherte Fassung (\(prompt.option.language ?? "Sprache unbekannt")) entspricht nicht deiner bevorzugten Sprache. Möchtest du sie trotzdem ansehen?")
+            }
         .alert("Speichern nicht möglich", isPresented: Binding(get: { library.storageError != nil }, set: { if !$0 { library.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(library.storageError ?? "") }
     }
 }

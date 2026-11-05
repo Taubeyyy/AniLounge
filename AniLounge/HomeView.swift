@@ -7,18 +7,20 @@ struct HomeView: View {
     @State private var error: String?
     @State private var loading = false
     var body: some View {
-        LoungeScroll(title: "", underBar: true, threshold: 420) {
+        LoungeScroll(title: "", underBar: false, threshold: 40) {
             LazyVStack(alignment: .leading, spacing: 30) {
+                // Personal content is available even when the online feed has never loaded.
+                ContinueWatchingShelf()
+                RecentShelf()
+                if feed == nil { AnimeShelf(title: "Meine Liste", items: library.favorites) }
                 if let feed {
                     HeroCarousel(items: Array((feed.featured.isEmpty ? feed.popular : feed.featured).prefix(6)))
-                    ContinueWatchingShelf()
                     if let error { Text(error).font(.footnote).foregroundColor(.orange).padding(.horizontal, 20) }
-                    RecentShelf()
                     AnimeShelf(title: "Beliebt auf AniWorld", items: feed.popular)
                     AnimeShelf(title: "Neue Folgen", items: Array(feed.recent.prefix(30)))
                     AnimeShelf(title: "Auf der Startseite", items: feed.featured)
                 } else if let error {
-                    ProblemView(message: error) { Task { await load() } }.padding(.top, 140)
+                    ProblemView(message: error) { Task { await load() } }.padding(.top, 20)
                 } else {
                     HomeSkeleton()
                 }
@@ -27,7 +29,12 @@ struct HomeView: View {
             LoungeLogo()
         }
         .task { if feed == nil { await load() } }
-        .refreshable { await AniClient.shared.clearCache(); await load() }
+        .task(id: library.profile.id) { await SeriesCatalogStore.shared.refreshContinuations(library.active) }
+        .refreshable {
+            await AniClient.shared.clearCache()
+            await load()
+            await SeriesCatalogStore.shared.refreshContinuations(library.active, force: true)
+        }
     }
     private func load() async {
         guard !loading else { return }
@@ -142,45 +149,46 @@ struct RecentShelf: View {
 }
 struct ContinueWatchingShelf: View {
     @EnvironmentObject private var library: LibraryStore
+    @ObservedObject private var catalogs = SeriesCatalogStore.shared
+    private var items: [EpisodeProgress] {
+        library.active.continuationCandidates.filter {
+            SeriesPlaybackState.start(anime: $0.anime, profile: library.active, catalog: catalogs.catalogs[$0.anime.id]) != .caughtUp
+        }
+    }
     var body: some View {
-        if !library.continueWatching.isEmpty {
+        if !items.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "Weiterschauen", subtitle: "Für \(library.profile.name)")
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
-                        ForEach(library.continueWatching) { item in
-                            Button {
-                                library.opened(item.episode, anime: item.anime)
-                                PlaybackCenter.shared.open(PlaybackRequest(anime: item.anime, episode: item.episode, profileID: library.profile.id), library: library)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 7) {
-                                    ZStack(alignment: .bottom) {
-                                        WideArtwork(anime: item.anime)
-                                        LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .center, endPoint: .bottom)
-                                        Image(systemName: "play.fill").font(.body).frame(width: 42, height: 42)
-                                            .background(.ultraThinMaterial).clipShape(Circle()).overlay(Circle().stroke(.white.opacity(0.3)))
-                                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                        GeometryReader { geo in
-                                            ZStack(alignment: .leading) {
-                                                Rectangle().fill(.white.opacity(0.25))
-                                                Rectangle().fill(Theme.accent).frame(width: geo.size.width * CGFloat(item.fraction ?? 0))
-                                            }
-                                        }.frame(height: 3).frame(maxHeight: .infinity, alignment: .bottom)
-                                    }.frame(width: 230, height: 129).clipShape(RoundedRectangle(cornerRadius: 10))
-                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.stroke))
-                                    Text(item.anime.title).font(.subheadline.bold()).lineLimit(1)
-                                    Text("Folge \(item.episode.number) · noch \(EpisodeProgress.format(max(0, (item.duration ?? item.seconds) - item.seconds)))")
-                                        .font(.caption.monospacedDigit()).foregroundColor(Theme.muted)
-                                }.frame(width: 230)
-                            }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
+                        ForEach(items) { item in
+                            let decision = SeriesPlaybackState.start(anime: item.anime, profile: library.active, catalog: catalogs.catalogs[item.anime.id])
+                            tile(item, decision: decision)
                                 .contextMenu {
-                                    Button { library.setWatched(true, episode: item.episode, anime: item.anime) } label: { Label("Als gesehen markieren", systemImage: "checkmark") }
-                                    Button(role: .destructive) { library.setWatched(false, episode: item.episode, anime: item.anime) } label: { Label("Aus Weiterschauen entfernen", systemImage: "xmark") }
+                                    if let episode = decision.episode {
+                                        Button { library.setWatched(true, episode: episode, anime: item.anime) } label: {
+                                            Label("Als gesehen markieren", systemImage: "checkmark")
+                                        }
+                                    }
+                                    Button { library.hideContinueWatching(item.anime) } label: {
+                                        Label("Aus Weiterschauen ausblenden", systemImage: "eye.slash")
+                                    }
                                 }
                         }
                     }.padding(.horizontal, 20)
                 }
             }
+        }
+    }
+    @ViewBuilder private func tile(_ item: EpisodeProgress, decision: SeriesPlaybackDecision) -> some View {
+        if let episode = decision.episode {
+            Button {
+                PlaybackCenter.shared.open(PlaybackRequest(anime: item.anime, episode: episode, profileID: library.profile.id), library: library)
+            } label: { ContinuationCard(item: item, decision: decision) }.buttonStyle(LoungePressStyle())
+        } else {
+            NavigationLink { DetailView(anime: item.anime) } label: {
+                ContinuationCard(item: item, decision: decision)
+            }.buttonStyle(LoungePressStyle())
         }
     }
 }

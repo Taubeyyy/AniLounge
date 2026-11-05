@@ -10,6 +10,7 @@ struct PlaybackRequest: Identifiable {
     let episode: Episode
     let profileID: UUID
     var localURL: URL? = nil
+    var localLanguage: String? = nil
 }
 @MainActor private final class WeakProgressHandler: NSObject, WKScriptMessageHandler {
     weak var target: PlayerModel?
@@ -39,12 +40,38 @@ final class PlayerSurfaceView: UIView {
 /// scrolling lists broke when they rebuilt (rotation, lazy loading) and left a stray video behind.
 /// Also keeps a Picture in Picture session alive after its screen closed and brings it back.
 @MainActor final class PlaybackCenter: ObservableObject {
-    static let shared = PlaybackCenter()
+    static let shared = PlaybackCenter(downloads: .shared)
+    struct OfflinePrompt: Identifiable {
+        let id = UUID()
+        let original: PlaybackRequest
+        let option: OfflinePlaybackOption
+        let library: LibraryStore
+    }
     @Published var presented: PlayerModel?
+    @Published var pendingOffline: OfflinePrompt?
     private(set) var current: PlayerModel?
+    private let downloads: DownloadStore
+    init(downloads: DownloadStore) { self.downloads = downloads }
     func open(_ request: PlaybackRequest, library: LibraryStore) {
-        // A quick double tap on a tile must not stack two players.
+        guard presented == nil, pendingOffline == nil else { return }
+        if request.localURL == nil,
+           let option = downloads.offlineOption(for: request, preferredLanguage: AppSettings.shared.language(for: request.profileID)) {
+            if option.requiresConfirmation {
+                pendingOffline = OfflinePrompt(original: request, option: option, library: library)
+            } else { present(option.request, library: library) }
+        } else { present(request, library: library) }
+    }
+    func confirmOffline(_ prompt: OfflinePrompt) {
+        pendingOffline = nil
+        present(prompt.option.request, library: prompt.library)
+    }
+    func chooseOnline(_ prompt: OfflinePrompt) {
+        pendingOffline = nil
+        present(prompt.original, library: prompt.library)
+    }
+    private func present(_ request: PlaybackRequest, library: LibraryStore) {
         guard presented == nil else { return }
+        library.beginPlayback(request.episode, anime: request.anime, profileID: request.profileID)
         presented = PlayerModel(request: request, store: library)
     }
     func activate(_ model: PlayerModel) {
@@ -117,7 +144,7 @@ final class PlayerSurfaceView: UIView {
     var isOffline: Bool { request.localURL != nil }
     func download() {
         guard nativeReady, let asset = player?.currentItem?.asset as? AVURLAsset, !isOffline else { return }
-        DownloadStore.shared.enqueue(request: request, asset: asset, cookies: downloadCookies, headers: downloadHeaders, source: selectedHost.map { "\($0.name) · \($0.language)" } ?? "Video")
+        DownloadStore.shared.enqueue(request: request, asset: asset, cookies: downloadCookies, headers: downloadHeaders, source: selectedHost.map { "\($0.name) · \($0.language)" } ?? "Video", language: selectedHost?.language)
         if DownloadStore.shared.existing(request) != nil { showToast("Download gestartet") }
     }
     private var itemObservation: NSKeyValueObservation?
@@ -142,6 +169,7 @@ final class PlayerSurfaceView: UIView {
 
     @Published var hosts: [StreamHost] = []
     @Published var choosingHost = false
+    @Published private(set) var languageNotice: String?
     @Published var loadingHosts = false
     @Published var selectedHost: StreamHost?
     @Published var player: AVPlayer?
@@ -177,9 +205,16 @@ final class PlayerSurfaceView: UIView {
             guard !closed, !Task.isCancelled else { return }
             let preference = UserDefaults.standard.dictionary(forKey: preferenceKey)
             loadNextEpisode()
-            if let host = AppSettings.shared.host(in: hosts, remembered: preference) {
+            switch AppSettings.shared.selection(in: hosts, remembered: preference) {
+            case .selected(let host):
                 select(host, remember: false)
-            } else { choosingHost = true; preparing = false }
+            case .requiresLanguageChoice(let preferred):
+                languageNotice = "Die bevorzugte Fassung \(preferred) ist für diese Folge nicht verfügbar. Wähle eine andere Fassung, um fortzufahren."
+                cancelCountdown(); choosingHost = true; preparing = false
+            case .unavailable:
+                error = "Für diese Folge ist keine Quelle verfügbar."
+                choosingHost = true; preparing = false
+            }
         }
         catch { if !Task.isCancelled { self.error = error.localizedDescription; choosingHost = true; preparing = false } }
     }
@@ -206,6 +241,7 @@ final class PlayerSurfaceView: UIView {
         if !automatic { triedHosts.removeAll(); recoveryMessage = nil }
         if let host { triedHosts.insert(host.id) }
         handledEnd = false
+        languageNotice = nil
         selectedHost = host; choosingHost = false; error = nil; preparing = true; startedAt = Date()
         DebugLog.shared.add("player", "select \(host?.name ?? "AniWorld") \(host?.language ?? "") ep \(request.episode.number) of \(request.anime.title)")
         if remember, let host { UserDefaults.standard.set(["name": host.name, "language": host.language], forKey: preferenceKey) }
@@ -265,19 +301,14 @@ final class PlayerSurfaceView: UIView {
         nextTask?.cancel(); nextEpisode = nil; nextEpisodeError = nil
         let episode = request.episode
         let anime = request.anime
+        let watched = store.snapshot.profiles.first { $0.profile.id == request.profileID }?.watched ?? []
         nextTask = Task { @MainActor [weak self] in
             do {
-                guard let separator = episode.path.lastIndex(of: "/") else { return }
-                let seasonPath = String(episode.path.prefix(upTo: separator))
+                let seasonPath = SeriesCatalog.seasonPath(for: episode)
                 let season = try await AniClient.shared.detail(path: seasonPath)
-                var next = PlaybackQueue.next(after: episode, in: season.episodes)
-                if next == nil, season.episodes.last?.id == episode.id, seasonPath.contains("/staffel-") {
-                    let detail = try await AniClient.shared.detail(path: anime.path)
-                    let seasons = detail.seasons.filter { $0.path.contains("/staffel-") }
-                    if let index = seasons.firstIndex(where: { $0.path == seasonPath }), seasons.indices.contains(index + 1) {
-                        next = try await AniClient.shared.detail(path: seasons[index + 1].path).episodes.first
-                    }
-                }
+                SeriesCatalogStore.shared.remember(season, path: seasonPath, isRoot: false)
+                let decision = try await SeriesCatalogStore.shared.resolveNext(after: episode, anime: anime, watched: watched)
+                let next = decision.episode
                 guard !Task.isCancelled, let self, !self.closed, self.request.episode.id == episode.id else { return }
                 self.nextEpisode = next
                 self.seasonEpisodes = season.episodes
@@ -307,7 +338,7 @@ final class PlayerSurfaceView: UIView {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         skipTimes = nil; autoSkippedOpening = false
         revealTask?.cancel(); webRevealTask?.cancel(); offerWebPlayer = false; webPlaybackSeen = false
-        store.opened(episode, anime: request.anime)
+        store.opened(episode, anime: request.anime, profileID: request.profileID)
         checkpoint(); stopNative(); loadTask?.cancel(); startupWatchdog?.cancel(); nextTask?.cancel(); cancelCountdown()
         token = UUID().uuidString
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
@@ -393,13 +424,15 @@ final class PlayerSurfaceView: UIView {
                 self.showWebPlayer()
             }
         }
-        record(seconds: seconds, duration: duration, completed: body["ended"] as? Bool == true || EpisodeProgress.finished(seconds: seconds, duration: duration))
+        record(seconds: seconds, duration: duration, completed: body["ended"] as? Bool == true)
         if body["ended"] as? Bool == true { episodeEnded() }
     }
     private func record(seconds: Double, duration: Double, completed: Bool) {
         startupWatchdog?.cancel()
-        if handledEnd && !completed { handledEnd = false; cancelCountdown() }
-        lastPosition = min(seconds, duration); lastDuration = duration; lastCompleted = completed; playhead = min(seconds, duration)
+        // A checkpoint after the end notification must not undo completion. Seeking back does.
+        let finished = completed || (lastCompleted && seconds >= duration - 0.5)
+        if handledEnd && !finished { handledEnd = false; cancelCountdown() }
+        lastPosition = min(seconds, duration); lastDuration = duration; lastCompleted = finished; playhead = min(seconds, duration)
         persist()
         savedLabel = "\(EpisodeProgress.format(seconds)) / \(EpisodeProgress.format(duration))"
     }
@@ -511,7 +544,7 @@ final class PlayerSurfaceView: UIView {
         let seconds = player.currentTime().seconds
         let duration = player.currentItem?.duration.seconds ?? 0
         guard seconds.isFinite, seconds >= 0, duration.isFinite, duration > 0, duration <= 86400 else { return }
-        record(seconds: seconds, duration: duration, completed: ended || EpisodeProgress.finished(seconds: seconds, duration: duration))
+        record(seconds: seconds, duration: duration, completed: ended)
     }
     func checkpoint() { captureNative(); persist() }
     func togglePlay() {
@@ -986,7 +1019,10 @@ struct PlaybackView: View {
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(episodeTitle(model.request.episode)).font(.title2.bold())
-                    Text("Deine Wahl gilt auch für die nächsten Folgen.").font(.subheadline).foregroundColor(Theme.muted)
+                    Text("Wähle die Sprache bewusst. Deine Wahl gilt auch für die nächsten Folgen.").font(.subheadline).foregroundColor(Theme.muted)
+                }
+                if let notice = model.languageNotice {
+                    NoticeView(text: notice, icon: "character.bubble.fill", tint: .orange)
                 }
                 if model.loadingHosts { ProgressView().tint(Theme.accent).frame(maxWidth: .infinity).padding(30) }
                 ForEach(Array(Set(model.hosts.map(\.language))).sorted(), id: \.self) { language in

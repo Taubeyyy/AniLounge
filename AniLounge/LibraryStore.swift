@@ -35,7 +35,14 @@ import AniCore
         ToastCenter.shared.show(adding ? "Zur Watchlist hinzugefügt" : "Von der Watchlist entfernt", icon: adding ? "bookmark.fill" : "bookmark.slash")
     }
     func toggle(_ anime: Anime) { change { $0.update(profile.id) { $0.toggleFavorite(anime) } } }
-    func opened(_ episode: Episode, anime: Anime) { change { $0.update(profile.id) { $0.opened(episode, anime: anime) } } }
+    func opened(_ episode: Episode, anime: Anime, profileID: UUID? = nil) { change { $0.update(profileID ?? profile.id) { $0.opened(episode, anime: anime) } } }
+    func hideContinueWatching(_ anime: Anime) { change { $0.update(profile.id) { $0.hideContinueWatching(anime) } } }
+    func beginPlayback(_ episode: Episode, anime: Anime, profileID: UUID) {
+        change { $0.update(profileID) { profile in
+            profile.revealContinueWatching(anime)
+            profile.opened(episode, anime: anime)
+        } }
+    }
     func clearHistory() { change { $0.update(profile.id) { $0.clearHistory() } } }
     func resetProgress() { change { $0.update(profile.id) { $0.resetProgress() } } }
     func setWatched(_ value: Bool, episode: Episode, anime: Anime) {
