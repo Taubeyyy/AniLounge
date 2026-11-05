@@ -1,16 +1,16 @@
 {
-  "version": "0.9.3",
+  "version": "0.9.4",
   "verified_date": "2026-11-05",
-  "source_commit": "d624b4255a5f9bf3f2eb46ff4d34363b7f6dc967",
-  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/42013541241",
+  "source_commit": "1fce182a5086350de93fb92e8ddfb984730b9057",
+  "workflow_run": "https://github.com/Taubeyyy/AniLounge/actions/runs/42021326886",
   "swift_core_tests": 33,
-  "javascript_tests": 11,
+  "javascript_tests": 12,
   "ios_simulator_tests": 7,
   "test_failures": 0,
   "webkit_rule_compilation": "passed",
   "ios_build": "success",
   "ipa_validation": "passed",
-  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.3",
+  "release": "https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.4",
   "ipa_bytes": 1243895,
   "downloads": {
     "implemented": [
@@ -58,6 +58,8 @@
     "Custom player gestures and rotation on iPhone",
     "PiP from AVPlayerLayer and lock screen controls",
     "Portrait lock outside the player",
-    "Landscape full screen after the 0.9.3 layout change"
+    "Landscape full screen after the 0.9.3 layout change",
+    "Loading screen over hoster pages",
+    "VOE without tracker reload"
   ]
 }
