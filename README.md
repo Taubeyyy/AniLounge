@@ -54,9 +54,9 @@ Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Ap
 - Eingebetteter Webplayer als Alternative; neue Popup-Fenster und externe App-Aufrufe werden blockiert.
 - Automatisches Speichern und Fortsetzen im iOS-Player sowie bei unterstützten HTML5-Videos. Manuelle Korrektur über das Menü einer Episode.
 
-**Buildstatus:** Version 0.5.0 wurde mit 38 erfolgreichen Tests geprüft und als Ad-hoc-signierte IPA gebaut. Der aktuelle geprüfte Stand steht in `VALIDATION.json`. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
+**Buildstatus:** Die Ergebnisse für den jeweiligen Commit stehen in [GitHub Actions](https://github.com/Taubeyyy/AniLounge/actions). Der Release-Workflow veröffentlicht die IPA erst nach erfolgreichen Core-, Webtracker- und iOS-Tests sowie Paketprüfung. `VALIDATION.json` dokumentiert einen älteren Prüfstand mit eigener Versionsangabe. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
 
-[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.9.6/AniLounge.ipa) · [Release 0.9.6](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.6)
+[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.9.7/AniLounge.ipa) · [Release 0.9.7](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.7)
 
 [Builds und IPA-Artefakte](https://github.com/Taubeyyy/AniLounge/actions)
 
