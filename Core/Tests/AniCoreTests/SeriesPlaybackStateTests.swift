@@ -46,6 +46,15 @@ final class SeriesPlaybackStateTests: XCTestCase {
         profile.watched = [episode(1, 1).id, episode(1, 2).id]
         XCTAssertEqual(SeriesPlaybackState.start(anime: anime, profile: profile, catalog: catalog()), .needsSeason("/anime/stream/test/staffel-2"))
     }
+    func testPlayerAndStartSkipTheSameWatchedEpisodes() throws {
+        var profile = ProfileLibrary()
+        try profile.saveProgress(episode(1, 1), anime: anime, seconds: 1440, duration: 1440, completed: true)
+        profile.watched.insert(episode(1, 2).id)
+        let start = SeriesPlaybackState.start(anime: anime, profile: profile, catalog: catalog())
+        let next = SeriesPlaybackState.next(after: episode(1, 1), catalog: catalog(), watched: profile.watched)
+        XCTAssertEqual(start, .needsSeason("/anime/stream/test/staffel-2"))
+        XCTAssertEqual(start, next)
+    }
     func testRemovedEpisodeDoesNotBecomeFirstEpisode() {
         XCTAssertEqual(SeriesPlaybackState.next(after: episode(1, 9), catalog: catalog()), .unavailable)
     }
@@ -55,6 +64,15 @@ final class SeriesPlaybackStateTests: XCTestCase {
         catalog.seasons.insert(Season(path: "/anime/stream/test/filme", title: "Filme"), at: 0)
         catalog.episodesBySeason["/anime/stream/test/filme"] = [film]
         XCTAssertEqual(SeriesPlaybackState.next(after: film, catalog: catalog), .caughtUp)
+    }
+    func testSeasonPageCanSeedCatalogAfterDirectResume() {
+        let known = catalog()
+        let detail = AnimeDetail(anime: anime, synopsis: "", genres: [], year: "", seasons: known.seasons,
+                                 episodes: [episode(1, 1), episode(1, 2)], backdrop: nil)
+        var fresh = SeriesCatalog()
+        fresh.record(detail, path: "/anime/stream/test/staffel-1", isRoot: false)
+        XCTAssertEqual(SeriesPlaybackState.next(after: episode(1, 1), catalog: fresh), .play(episode(1, 2)))
+        XCTAssertEqual(SeriesPlaybackState.next(after: episode(1, 2), catalog: fresh), .needsSeason("/anime/stream/test/staffel-2"))
     }
     func testCatalogRoundTripAndRootRefreshInvalidatesOldSeasonLists() throws {
         var catalog = catalog()

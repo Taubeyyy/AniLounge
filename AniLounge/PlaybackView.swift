@@ -104,6 +104,7 @@ final class PlayerSurfaceView: UIView {
     private var handledEnd = false
     @Published var nextEpisode: Episode?
     @Published var nextEpisodeError: String?
+    @Published private(set) var caughtUp = false
     @Published var countdown: Int?
     @Published var autoNext = AppSettings.shared.autoNext
     @Published var recoveryMessage: String?
@@ -298,7 +299,7 @@ final class PlayerSurfaceView: UIView {
         else { Task { await loadHosts() } }
     }
     func loadNextEpisode() {
-        nextTask?.cancel(); nextEpisode = nil; nextEpisodeError = nil
+        nextTask?.cancel(); nextEpisode = nil; nextEpisodeError = nil; caughtUp = false
         let episode = request.episode
         let anime = request.anime
         let watched = store.snapshot.profiles.first { $0.profile.id == request.profileID }?.watched ?? []
@@ -311,6 +312,8 @@ final class PlayerSurfaceView: UIView {
                 let next = decision.episode
                 guard !Task.isCancelled, let self, !self.closed, self.request.episode.id == episode.id else { return }
                 self.nextEpisode = next
+                self.caughtUp = decision == .caughtUp
+                if decision == .unavailable { self.nextEpisodeError = "Die nächste Folge konnte nicht zugeordnet werden." }
                 self.seasonEpisodes = season.episodes
                 if self.handledEnd { self.scheduleNext() }
                 // Stills, titles and opening times are extras: failures only hide them.
@@ -343,7 +346,7 @@ final class PlayerSurfaceView: UIView {
         token = UUID().uuidString
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
         request = PlaybackRequest(anime: request.anime, episode: episode, profileID: request.profileID)
-        nextEpisode = nil; nextEpisodeError = nil; hosts = []; selectedHost = nil
+        nextEpisode = nil; nextEpisodeError = nil; caughtUp = false; hosts = []; selectedHost = nil
         lastPosition = nil; lastDuration = nil; lastCompleted = false; savedLabel = nil
         handledEnd = false; choosingHost = false; preparing = true; error = nil
         Task { await loadHosts() }
@@ -908,7 +911,8 @@ struct PlaybackView: View {
                     NoticeView(text: model.status, icon: "hand.tap", tint: Theme.accentSoft)
                 }
                 if !model.seasonEpisodes.isEmpty && !model.isOffline { episodeList }
-                else if let message = model.nextEpisodeError {
+                if model.caughtUp { Text("Keine weitere bekannte Folge").font(.caption).foregroundColor(Theme.muted) }
+                if let message = model.nextEpisodeError {
                     Button(message + " Erneut versuchen") { model.loadNextEpisode() }.font(.caption)
                 }
             }.padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 30).foregroundColor(.white)

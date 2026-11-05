@@ -65,7 +65,7 @@ Unter **Artifacts → AniLounge-TrollStore** herunterladen, ZIP in der Dateien-A
 ## Überarbeitete Kernabläufe
 
 - „Aus Weiterschauen ausblenden“ bewahrt Fortschritt, Verlauf und Gesehen-Markierungen. Ein erneuter bewusster Wiedergabestart blendet den Titel wieder ein.
-- Startseite und Detailseite unterscheiden Fortsetzen, nächste ungesehene Folge und „Du bist auf dem neuesten Stand“. Der Player verwendet dieselbe Folgen- und Staffelauflösung.
+- Startseite und Detailseite unterscheiden Fortsetzen, nächste ungesehene Folge und „Alle bekannten Folgen gesehen“. Der Player verwendet dieselbe Folgen- und Staffelauflösung.
 - Persönliche Startseitenreihen bleiben bei einem Katalogfehler sichtbar. Ein lokaler Katalogcache erlaubt die Fortsetzung bekannter Serien.
 - Beim Start wird eine gespeicherte Folge des aktuellen Profils bevorzugt. Eine abweichende oder unbekannte Downloadsprache verlangt eine Bestätigung; passende Downloads brauchen keinen Online-Katalog.
 - Die Wiederherstellung laufender Downloads wartet auf alle drei Hintergrundsessions, bevor sie fehlende Aufgaben als fehlgeschlagen markiert.

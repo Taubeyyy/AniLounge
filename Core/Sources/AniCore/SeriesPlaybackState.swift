@@ -12,6 +12,9 @@ public struct SeriesCatalog: Codable, Sendable {
             seasons = detail.seasons
             episodesBySeason = [:] // A successful refresh must discover additions to later seasons too.
             refreshedAt = date
+        } else if !detail.seasons.isEmpty {
+            // A direct resume may load a season before the series landing page.
+            seasons = detail.seasons
         }
         let grouped = Dictionary(grouping: detail.episodes) { Self.seasonPath(for: $0) }
         for (key, episodes) in grouped { episodesBySeason[key] = episodes }
