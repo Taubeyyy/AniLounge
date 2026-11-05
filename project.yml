@@ -34,6 +34,8 @@ targets:
       path: AniLounge/Info.plist
       properties:
         CFBundleDisplayName: AniLounge
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSRequiresIPhoneOS: true
         UILaunchScreen: {}
         UIUserInterfaceStyle: Dark
