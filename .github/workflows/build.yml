@@ -50,9 +50,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cat > build/release-notes.md <<'NOTES'
-          Vollbild repariert: Im Querformat füllt das Video jetzt wirklich den ganzen Bildschirm, auch neben der Notch, und die Steuerung liegt richtig.
-          Behoben: Nach dem Drehen blieb manchmal nur das Video über der Startseite stehen. Der Player öffnet jetzt immer von einer festen Stelle aus und kann beim Drehen nicht mehr verloren gehen.
+          Ladebildschirm: Die Anbieter-Seite mit ihrer Werbung bleibt verdeckt, bis unser Player das Video hat. Dauert es länger, gibt es „Webplayer zeigen“ und „Andere Quelle“.
+          Behoben: VOE-Streams wurden vom Autostart-Script versehentlich neu geladen und brachen ab.
+          Behoben: Läuft eine Folge im Webplayer, aber nicht im iOS-Player, bleibt sie jetzt dort statt die Quelle zu wechseln.
+          Behoben: Im Querformat fehlte beim Laden und im Webplayer ein Schließen-Knopf.
+          Behoben: Ruckeln auf der Downloads-Seite während laufender Downloads; alter Timer beim Folgenwechsel; doppelte Player bei Doppeltipp.
+          Der iOS-Player fragt Videos mit derselben Browser-Kennung an wie die Anbieter-Seite.
           Mit TrollStore als Update installieren, um lokale Daten zu behalten.
           NOTES
-          gh release create v0.9.3 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.3" --notes-file build/release-notes.md
+          gh release create v0.9.4 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.4" --notes-file build/release-notes.md
 

@@ -9,6 +9,8 @@
     // Big play buttons of common hoster players. Only these controls are ever clicked, never links.
     const PLAY_BUTTONS = '.vjs-big-play-button, .jw-display-icon-display, .plyr__control--overlaid, .fp-ui .fp-play, button[aria-label="Play"]';
     const hasSource = v => !!(v.currentSrc || v.src || (typeof v.querySelector === 'function' && v.querySelector('source[src]')));
+    // MediaSource players (hls.js inside JW Player on VOE) own their element: load() would drop the stream.
+    const managed = v => /^blob:/.test(v.currentSrc || v.src || '');
     const playing = () => [...document.querySelectorAll('video')].some(v => !v.paused && v.readyState > 1);
     function direct(value) {
         try {
@@ -80,7 +82,7 @@
         // Players with preload="none" never load metadata on their own: ask for it once.
         function wake() {
             const state = states.get(v);
-            if (!config.autoPlay || state.woken || v.readyState > 0 || !hasSource(v)) return;
+            if (!config.autoPlay || state.woken || v.readyState > 0 || !hasSource(v) || managed(v)) return;
             state.woken = true;
             try { if (v.preload === 'none') v.preload = 'metadata'; if (typeof v.load === 'function') v.load(); } catch (_) {}
         }
@@ -101,7 +103,7 @@
             if (primary || playing()) return;
             document.querySelectorAll('video').forEach(v => {
                 const state = states.get(v);
-                if (!state || state.autoAttempted || v.readyState > 0 || !hasSource(v)) return;
+                if (!state || state.autoAttempted || v.readyState > 0 || !hasSource(v) || managed(v)) return;
                 state.autoAttempted = true;
                 const promise = v.play();
                 if (promise && promise.catch) promise.catch(() => {});

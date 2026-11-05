@@ -2,6 +2,10 @@
 
 Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Apps inspirierten SwiftUI-Oberfläche. Zielgerät: iPhone 13 mit iOS 16.4.1 und bereits eingerichtetem TrollStore. Das Layout unterstützt auch iPad; die Installation dort benötigt einen eigenen kompatiblen Installationsweg.
 
+## Version 0.9.4
+
+- Ladebildschirm verdeckt die Anbieter-Seite, bis der Player übernimmt; mehrere Wiedergabe-Bugs behoben (VOE-Stream, Webplayer-Fallback, Schließen im Querformat, Downloads-Ruckeln).
+
 ## Version 0.9.3
 
 - Vollbild füllt im Querformat den ganzen Bildschirm; der Player öffnet zentral und geht beim Drehen nicht mehr verloren.
@@ -52,7 +56,7 @@ Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Ap
 
 **Buildstatus:** Version 0.5.0 wurde mit 38 erfolgreichen Tests geprüft und als Ad-hoc-signierte IPA gebaut. Der aktuelle geprüfte Stand steht in `VALIDATION.json`. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
 
-[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.9.3/AniLounge.ipa) · [Release 0.9.3](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.3)
+[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.9.4/AniLounge.ipa) · [Release 0.9.4](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.4)
 
 [Builds und IPA-Artefakte](https://github.com/Taubeyyy/AniLounge/actions)
 
@@ -60,7 +64,7 @@ Unter **Artifacts → AniLounge-TrollStore** herunterladen, ZIP in der Dateien-A
 
 ## Wiedergabe
 
-Ein Tipp auf eine Folge startet automatisch die pro Profil gemerkte Quelle; ohne Vorgabe werden Deutsch und VOE bevorzugt, sonst ein verfügbarer Anbieter. Über „Quelle“ änderst du Anbieter und Sprache. Die Auswahl gilt auch für folgende Episoden. Die App versucht unterstützte HTML5-Videos automatisch zu starten, ohne Buttons oder Werbelinks auf Webseiten anzuklicken. Braucht der Hoster eine zusätzliche Interaktion, wird der Webplayer nach dem Laden der Anbieterseite eingeblendet, spätestens nach zwölf Sekunden ohne erkannten nativen Stream. Der isolierte WebKit-Tracker erkennt laufende HTML5-Videos, direkte MP4-/HLS-URLs und bei Blob-Playern einen eindeutig zuordenbaren, bereits geladenen HLS-Manifestlink. Dann versucht AVPlayer die Wiedergabe und setzt eine gemerkte Position fort. Erst wenn der native Player bereit ist, wird die Webwiedergabe angehalten. Apple-Player-Steuerelemente bieten Vollbild und Bild-in-Bild, soweit das Gerät dies unterstützt.
+Ein Tipp auf eine Folge startet automatisch die pro Profil gemerkte Quelle; ohne Vorgabe werden Deutsch und VOE bevorzugt, sonst ein verfügbarer Anbieter. Über „Quelle“ änderst du Anbieter und Sprache. Die Auswahl gilt auch für folgende Episoden. Die App versucht unterstützte HTML5-Videos automatisch zu starten, ohne Buttons oder Werbelinks auf Webseiten anzuklicken. Bis der eigene Player das Video übernimmt, verdeckt ein Ladebildschirm die Anbieterseite. Dauert der Start länger als zwölf Sekunden, lässt sich der Webplayer einblenden oder die Quelle wechseln; spielt die Seite das Video schon, ohne dass der eigene Player übernehmen kann, erscheint sie nach wenigen Sekunden von selbst. Der isolierte WebKit-Tracker erkennt laufende HTML5-Videos, direkte MP4-/HLS-URLs und bei Blob-Playern einen eindeutig zuordenbaren, bereits geladenen HLS-Manifestlink. Dann versucht AVPlayer die Wiedergabe und setzt eine gemerkte Position fort. Erst wenn der native Player bereit ist, wird die Webwiedergabe angehalten. Apple-Player-Steuerelemente bieten Vollbild und Bild-in-Bild, soweit das Gerät dies unterstützt.
 
 Abgelaufene oder an Browser-Header gebundene Links, DRM, andere Formate und nicht erkannte Quellen können die native Wiedergabe verhindern. Dann bleibt der Webplayer verfügbar; über „Quelle“ lässt sich wechseln. „Webplayer verwenden“ beendet einen nativen Versuch. Es gibt keine Garantie, dass jeder Hoster funktioniert. Popup-Blocking entfernt keine in die Seite oder ins Video eingebettete Werbung. Kurze Clips unter 90 Sekunden werden vom Webtracker ignoriert, um typische Werbeclips nicht als Folgenfortschritt zu speichern; längere Werbung kann nicht zuverlässig erkannt werden.
 

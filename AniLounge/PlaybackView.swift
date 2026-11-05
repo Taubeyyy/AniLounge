@@ -43,6 +43,8 @@ final class PlayerSurfaceView: UIView {
     @Published var presented: PlayerModel?
     private(set) var current: PlayerModel?
     func open(_ request: PlaybackRequest, library: LibraryStore) {
+        // A quick double tap on a tile must not stack two players.
+        guard presented == nil else { return }
         presented = PlayerModel(request: request, store: library)
     }
     func activate(_ model: PlayerModel) {
@@ -108,7 +110,9 @@ final class PlayerSurfaceView: UIView {
     private var downloadHeaders: [String: String] = [:]
     private func mediaHeaders() -> [String: String] {
         guard let page = mediaFrame?.request.url ?? webView.url, page.scheme == "https", let host = page.host else { return [:] }
-        return ["Referer": page.absoluteString, "Origin": "https://" + host]
+        var headers = ["Referer": page.absoluteString, "Origin": "https://" + host]
+        if let webUserAgent { headers["User-Agent"] = webUserAgent }
+        return headers
     }
     var isOffline: Bool { request.localURL != nil }
     func download() {
@@ -126,7 +130,14 @@ final class PlayerSurfaceView: UIView {
     @Published var adBlockEnabled = AppSettings.shared.adBlock
     @Published var blockerStatus = "Werbeblocker wird vorbereitet"
     private var revealTask: Task<Void, Never>?
+    private var webRevealTask: Task<Void, Never>?
+    /// The hoster page stays hidden behind the loading screen until our player has the video.
     @Published var preparing = true
+    /// Shown on the loading screen when a start takes unusually long.
+    @Published private(set) var offerWebPlayer = false
+    /// The video already plays inside the hoster page (seen through the tracker).
+    private var webPlaybackSeen = false
+    private var webUserAgent: String?
     private var preferenceKey: String { "playback.preference." + request.profileID.uuidString }
 
     @Published var hosts: [StreamHost] = []
@@ -149,6 +160,10 @@ final class PlayerSurfaceView: UIView {
         // Never flash white behind hoster pages or during layout changes.
         webView.isOpaque = false; webView.backgroundColor = .black; webView.scrollView.backgroundColor = .black
         super.init()
+        // Media requests from AVPlayer use the same browser identity as the hoster page.
+        webView.evaluateJavaScript("navigator.userAgent") { [weak self] value, _ in
+            Task { @MainActor [weak self] in self?.webUserAgent = value as? String }
+        }
         webView.navigationDelegate = self; webView.uiDelegate = self
         configuration.userContentController.add(WeakProgressHandler(self), contentWorld: world, name: "aniProgress")
     }
@@ -193,12 +208,12 @@ final class PlayerSurfaceView: UIView {
         handledEnd = false
         selectedHost = host; choosingHost = false; error = nil; preparing = true; startedAt = Date()
         if remember, let host { UserDefaults.standard.set(["name": host.name, "language": host.language], forKey: preferenceKey) }
-        revealTask?.cancel()
+        revealTask?.cancel(); webRevealTask?.cancel(); offerWebPlayer = false; webPlaybackSeen = false
         revealTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 12_000_000_000)
-            guard !Task.isCancelled, let self, !self.closed, !self.nativeReady else { return }
-            self.preparing = false
-            self.status = "Der Anbieter braucht eventuell einen weiteren Start-Tipp. Alternativ Quelle wechseln."
+            guard !Task.isCancelled, let self, !self.closed, !self.nativeReady, self.preparing else { return }
+            self.offerWebPlayer = true
+            self.status = "Das dauert länger als sonst."
         }
         lastPosition = nil; lastDuration = nil; lastCompleted = false; mediaOrigin = nil; mediaFrame = nil
         attempted.removeAll(); nativeDisabled = false; savedLabel = nil
@@ -289,6 +304,8 @@ final class PlayerSurfaceView: UIView {
         guard !closed, episode.id != request.episode.id else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         skipTimes = nil; autoSkippedOpening = false
+        revealTask?.cancel(); webRevealTask?.cancel(); offerWebPlayer = false; webPlaybackSeen = false
+        store.opened(episode, anime: request.anime)
         checkpoint(); stopNative(); loadTask?.cancel(); startupWatchdog?.cancel(); nextTask?.cancel(); cancelCountdown()
         token = UUID().uuidString
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
@@ -327,7 +344,19 @@ final class PlayerSurfaceView: UIView {
     func chooseHost() {
         checkpoint(); stopNative(); loadTask?.cancel(); startupWatchdog?.cancel(); cancelCountdown(); token = UUID().uuidString
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
-        choosingHost = true; error = nil; preparing = false; revealTask?.cancel()
+        choosingHost = true; error = nil; preparing = false; revealTask?.cancel(); webRevealTask?.cancel(); offerWebPlayer = false
+    }
+    /// Lifts the loading screen and shows the hoster page, e.g. when it needs a tap.
+    func showWebPlayer() {
+        preparing = false; offerWebPlayer = false
+        revealTask?.cancel(); webRevealTask?.cancel(); startupWatchdog?.cancel()
+        status = "Webplayer · falls nötig im Video auf Play tippen."
+    }
+    /// The native player could not take the link. If the page already plays it, stay there.
+    private func nativeFailed(_ reason: String) {
+        if webPlaybackSeen && !isOffline {
+            useWebPlayer(reason + " Die Folge läuft im Webplayer weiter.")
+        } else { recover(reason) }
     }
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard !closed, !choosingHost, let body = message.body as? [String: Any], body["token"] as? String == token else { return }
@@ -341,6 +370,16 @@ final class PlayerSurfaceView: UIView {
         let origin = message.frameInfo.securityOrigin.host
         if let mediaOrigin, mediaOrigin != origin, let lastDuration, duration < lastDuration * 0.8 { return }
         mediaOrigin = origin; mediaFrame = message.frameInfo
+        if !webPlaybackSeen {
+            webPlaybackSeen = true
+            // The page plays the episode; give our player a moment to take over, else show the page.
+            webRevealTask?.cancel()
+            webRevealTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                guard !Task.isCancelled, let self, !self.closed, !self.nativeReady, self.preparing else { return }
+                self.showWebPlayer()
+            }
+        }
         record(seconds: seconds, duration: duration, completed: body["ended"] as? Bool == true || EpisodeProgress.finished(seconds: seconds, duration: duration))
         if body["ended"] as? Bool == true { episodeEnded() }
     }
@@ -394,7 +433,7 @@ final class PlayerSurfaceView: UIView {
                 Task { @MainActor [weak self] in
                     guard let self, self.generation == attempt, self.player?.currentItem === item else { return }
                     if item.status == .readyToPlay { self.activateNative(item) }
-                    else if item.status == .failed { self.recover("Der Videolink konnte nicht abgespielt werden.") }
+                    else if item.status == .failed { self.nativeFailed("Der Videolink konnte nicht abgespielt werden.") }
                 }
             }
             self.timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 5, preferredTimescale: 600), queue: .main) { [weak self] _ in
@@ -424,14 +463,14 @@ final class PlayerSurfaceView: UIView {
             self.timeout = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 20_000_000_000)
                 guard !Task.isCancelled, let self, self.generation == attempt, !self.nativeReady else { return }
-                self.recover("Der native Player konnte die Quelle nicht rechtzeitig laden.")
+                self.nativeFailed("Der native Player konnte die Quelle nicht rechtzeitig laden.")
             }
         }
     }
     private func activateNative(_ item: AVPlayerItem) {
         guard !nativeReady, !closed else { return }
         startupWatchdog?.cancel()
-        nativeReady = true; preparing = false; revealTask?.cancel(); restoring = true; timeout?.cancel(); error = nil
+        nativeReady = true; preparing = false; offerWebPlayer = false; revealTask?.cancel(); webRevealTask?.cancel(); restoring = true; timeout?.cancel(); error = nil
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
         status = "Fortschritt wird automatisch gespeichert."
@@ -587,7 +626,7 @@ final class PlayerSurfaceView: UIView {
         if inPictureInPicture || restoringInterface { detached = true } else { finish() }
     }
     func useWebPlayer(_ reason: String = "Webplayer aktiv. Neue Fenster bleiben blockiert.") {
-        checkpoint(); stopNative(); startupWatchdog?.cancel(); nativeDisabled = true; preparing = false; revealTask?.cancel()
+        checkpoint(); stopNative(); startupWatchdog?.cancel(); nativeDisabled = true; preparing = false; offerWebPlayer = false; revealTask?.cancel(); webRevealTask?.cancel()
         webView.setAllMediaPlaybackSuspended(false, completionHandler: nil)
         // Resume the existing document at the latest native position, if its video supports seeking.
         if let position = lastPosition {
@@ -609,7 +648,7 @@ final class PlayerSurfaceView: UIView {
     }
     func finish() {
         guard !closed else { return }
-        checkpoint(); closed = true; startupWatchdog?.cancel(); nextTask?.cancel(); cancelCountdown(); loadTask?.cancel(); revealTask?.cancel(); stopNative()
+        checkpoint(); closed = true; startupWatchdog?.cancel(); nextTask?.cancel(); cancelCountdown(); loadTask?.cancel(); revealTask?.cancel(); webRevealTask?.cancel(); stopNative()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "aniProgress", contentWorld: world)
@@ -623,10 +662,8 @@ final class PlayerSurfaceView: UIView {
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard !choosingHost, !nativeReady, webView.url?.scheme == "https" else { return }
-        if player == nil {
-            preparing = false; revealTask?.cancel()
-            status = "Anbieter geladen. Falls das Video nicht startet: Play antippen oder Quelle wechseln."
-        }
+        // Keep the loading screen; the page is only shown once it is clearly needed.
+        if player == nil { status = "Anbieter geladen · Video wird gestartet …" }
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         if (error as NSError).code != NSURLErrorCancelled {
@@ -723,27 +760,62 @@ struct PlaybackView: View {
     private var stage: some View {
         ZStack {
             Color.black
-            PlayerWebView(webView: model.webView).opacity(model.nativeReady || model.preparing ? 0 : 1)
+            PlayerWebView(webView: model.webView).opacity(model.nativeReady ? 0 : 1)
             PlayerSurface(model: model, fill: model.fillScreen).opacity(model.nativeReady ? 1 : 0).allowsHitTesting(false)
-            if model.preparing { loadingCard }
+            if model.preparing { loadingCard.transition(.opacity) }
+            if theater && !model.nativeReady && !model.preparing {
+                // Landscape web player: keep a way out.
+                Button { close() } label: { CircleIcon(systemName: "chevron.down") }.buttonStyle(LoungePressStyle())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(.leading, 56).padding(.top, 16)
+                    .accessibilityLabel("Player schließen")
+            }
             if model.nativeReady {
                 PlayerControls(model: model, clock: model.clock, theater: theater, close: close, more: { showingMore = true })
             }
         }.clipped()
     }
+    /// Opaque cover over the hoster page (ads, banners) until our player has the video.
     private var loadingCard: some View {
         ZStack {
+            Color.black
             Group {
                 if let still = model.episodeExtras[model.request.episode.number]?.image { Artwork(url: still) } else { WideArtwork(anime: model.request.anime) }
-            }.blur(radius: 24).opacity(0.5)
-            LinearGradient(colors: [.black.opacity(0.2), .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
-            VStack(spacing: 12) {
-                ProgressView().controlSize(.large).tint(.white)
-                Text(model.status).font(.footnote.weight(.semibold)).multilineTextAlignment(.center).foregroundColor(.white.opacity(0.85))
-                if let host = model.selectedHost {
-                    Text("\(host.name) · \(LanguageLabel.short(host.language))").font(.caption).foregroundColor(Theme.muted)
+            }.blur(radius: 30).opacity(0.45).allowsHitTesting(false)
+            LinearGradient(colors: [.black.opacity(0.35), .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+            VStack(spacing: theater ? 14 : 10) {
+                if theater {
+                    VStack(spacing: 4) {
+                        Text(model.request.anime.title.uppercased()).font(.caption.bold()).tracking(1.4).foregroundColor(Theme.accentSoft)
+                        Text("Folge \(model.request.episode.number) · \(model.request.episode.title)").font(.title3.bold()).lineLimit(1)
+                    }.padding(.bottom, 6)
                 }
-            }.padding(24)
+                LoadingPulse()
+                Text(model.status).font(.footnote.weight(.semibold)).multilineTextAlignment(.center).foregroundColor(.white.opacity(0.85))
+                    .animation(.easeInOut(duration: 0.2), value: model.status)
+                HStack(spacing: 6) {
+                    if let host = model.selectedHost { Text("\(host.name) · \(LanguageLabel.short(host.language))") }
+                    TimelineView(.periodic(from: model.startedAt, by: 1)) { context in
+                        Text("\(max(0, Int(context.date.timeIntervalSince(model.startedAt)))) s").monospacedDigit()
+                    }
+                }.font(.caption).foregroundColor(Theme.muted)
+                if model.offerWebPlayer {
+                    HStack(spacing: 10) {
+                        Button { model.showWebPlayer() } label: {
+                            Label("Webplayer zeigen", systemImage: "globe").font(.footnote.bold()).padding(.horizontal, 14).padding(.vertical, 9)
+                                .background(Color.white).foregroundColor(.black).clipShape(Capsule())
+                        }
+                        Button { model.chooseHost() } label: {
+                            Label("Andere Quelle", systemImage: "rectangle.stack").font(.footnote.bold()).padding(.horizontal, 14).padding(.vertical, 9)
+                                .background(.ultraThinMaterial).clipShape(Capsule())
+                        }
+                    }.buttonStyle(LoungePressStyle()).foregroundColor(.white).padding(.top, 4).transition(.opacity.combined(with: .scale(scale: 0.95)))
+                }
+            }.padding(24).animation(.easeInOut(duration: 0.25), value: model.offerWebPlayer)
+            if theater {
+                Button { close() } label: { CircleIcon(systemName: "chevron.down") }.buttonStyle(LoungePressStyle())
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading).padding(.leading, 56).padding(.top, 16)
+                    .accessibilityLabel("Player schließen")
+            }
         }
     }
 
@@ -1219,3 +1291,26 @@ private struct PlayerSurface: UIViewRepresentable {
     }
 }
 
+
+/// Calm loading indicator: a pulsing play glyph inside a turning accent ring.
+private struct LoadingPulse: View {
+    @State private var spin = false
+    @State private var pulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    var body: some View {
+        ZStack {
+            Circle().stroke(.white.opacity(0.12), lineWidth: 3)
+            Circle().trim(from: 0, to: 0.28).stroke(Theme.accentGradient, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(spin ? 360 : 0))
+            Image(systemName: "play.fill").font(.system(size: 18, weight: .bold)).foregroundColor(.white)
+                .scaleEffect(pulse ? 1.08 : 0.92).opacity(pulse ? 1 : 0.7)
+        }
+        .frame(width: 54, height: 54)
+        .onAppear {
+            guard !reduceMotion else { return }
+            withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { spin = true }
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
+        }
+        .accessibilityLabel("Lädt")
+    }
+}

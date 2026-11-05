@@ -31,6 +31,8 @@ struct EpisodeDownload: Codable, Identifiable {
     private let directory: URL
     private let manifest: URL
     private var tasks: [UUID: URLSessionTask] = [:]
+    /// Bytes on disk per finished download; walking HLS packages on every render was slow.
+    private var sizes: [UUID: Int64] = [:]
     private var validations: [UUID: Task<Void, Never>] = [:]
     private var completions: [String: () -> Void] = [:]
     private var finishedEvents = Set<String>()
@@ -148,10 +150,13 @@ struct EpisodeDownload: Codable, Identifiable {
     }
     /// Bytes on disk for one profile's finished downloads (HLS packages are folders).
     func usedBytes(profileID: UUID) -> Int64 {
-        items.filter { $0.profileID == profileID }.compactMap(localURL(for:)).reduce(0) { total, url in
+        items.filter { $0.profileID == profileID && $0.state == .ready }.reduce(0) { total, entry in
+            if let known = sizes[entry.id] { return total + known }
+            guard let url = localURL(for: entry) else { return total }
             let files = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey])
             var size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
             while let file = files?.nextObject() as? URL { size += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+            sizes[entry.id] = size
             return total + size
         }
     }
@@ -188,6 +193,7 @@ struct EpisodeDownload: Codable, Identifiable {
         change(id) { $0.relativePath = relative }; return true
     }
     private func removeFile(_ id: UUID) {
+        sizes[id] = nil
         if let path = items.first(where: { $0.id == id })?.relativePath, let url = fileURL(relativePath: path) { try? FileManager.default.removeItem(at: url) }
     }
     private func fail(_ id: UUID, _ message: String) {

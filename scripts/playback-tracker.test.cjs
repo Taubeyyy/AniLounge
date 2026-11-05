@@ -117,3 +117,12 @@ test('the player big play button is pressed once when nothing plays; links never
     const manual = video(NaN, ''); manual.readyState = 0; manual.paused = true;
     setup([manual], { autoPlay: false, button: off }).runTimers(); assert.equal(off.clicks, 0);
 });
+test('MediaSource players (blob, e.g. JW Player on VOE) are never reloaded or started by the tracker', () => {
+    const v = video(NaN, 'blob:https://host.example/stream'); v.readyState = 0; v.paused = true; v.preload = 'none';
+    v.loadCalls = 0; v.load = function () { this.loadCalls++; };
+    const env = setup([v], { autoPlay: true });
+    v.emit('loadstart'); env.runTimers();
+    assert.equal(v.loadCalls, 0, 'load() would drop the stream');
+    assert.equal(v.preload, 'none');
+    assert.equal(v.playCalls, 0, 'starting is left to the player API');
+});
