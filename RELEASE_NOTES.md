@@ -1,22 +1,16 @@
-# AniLounge 1.0.0 · Build 22
+# AniLounge 1.0.1 · Build 23
 
-**Player**
-- Die iOS-Leiste unten blendet sich beim Schauen aus; ein Wisch vom unteren Rand holt sie erst zurück, statt den Player zu verlassen.
-- Lautstärke links, Helligkeit rechts wischen; die Anzeige sitzt jetzt am jeweiligen Rand.
-- Doppeltippen summiert: +10, +20, +30 Sekunden.
-- „Folge X“ im Vollbild ist größer und reagiert zuverlässiger.
-- „Intro +85 s“ erscheint am Anfang, wenn keine Opening-Zeiten bekannt sind; automatisches Überspringen greift jetzt auch bei Synchronfassungen mit leicht anderer Länge.
-- Die Zeitleiste zeigt Rückblick (türkis), Opening (gelb) und Abspann (orange) farbig.
-- Glas-Look für die Wiedergabe-Einstellungen.
+**Neu**
+- „Fertig geschaut“ im Profil: alle Anime mit Status „Fertig“ an einem Ort; oben Namen tippen und mit + eintragen, auch für Anime, die du woanders gesehen hast.
+- „Weil du … geschaut hast“ auf der Startseite: Empfehlungen zum zuletzt gesehenen Anime, nur was es auf AniWorld gibt und du noch nicht kennst.
+- Wochenübersicht im Profil: Folgen pro Tag der letzten sieben Tage.
 
-**Bilder**
-- Cover und Hintergrundbilder werden dauerhaft gespeichert und im Hintergrund vorbereitet; Scrollen ist flüssiger.
-- Vorschaubilder werden in voller Auflösung genutzt und nicht mehr verpixelt hochgezogen; ohne breites Bild erscheint das Poster scharf vor einem weichen Hintergrund.
-
-**Oberfläche**
-- Suche aufgeräumt: „Überrasch mich“ (mit „Noch mal“) und „Alle A–Z“ statt einer Wand aus 2000 Postern; „Überrasch mich“ friert nicht mehr ein.
-- Profil neu: Kopfbereich mit deinem zuletzt gesehenen Anime, kompakte Statistik, „Wer schaut?“.
-- Einstellungen mit leichtem Glas-Look und schlichten Symbolen.
-- Neues App-Icon und eine kurze Startanimation.
+**Behoben**
+- Eine Sicherung wird jetzt genauso streng geprüft wie beim App-Start; eine fehlerhafte Datei kann die Bibliothek nicht mehr sperren.
+- Bilder werden in der Größe entpackt, in der sie gezeigt werden: weniger Speicher, kein ständiges Nachladen beim Scrollen, scharfe Heros.
+- „Intro +85 s“ erscheint auch, wenn AniSkip-Zeiten nicht zur Fassung passen.
+- „Fortschritt zurücksetzen“ setzt auch die Status (Fertig, Schaue ich …) zurück.
+- Watchlist, Profil und Fertig-Liste rechnen den Status schneller aus.
+- Keine Erfolgsmeldung mehr, wenn das Speichern fehlgeschlagen ist; Entfernen aus der Fertig-Liste zeigt nur eine Meldung.
 
 Installation: AniLounge.ipa mit TrollStore als Update über die vorhandene App installieren. Profile und Downloads bleiben erhalten.

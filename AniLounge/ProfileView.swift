@@ -15,9 +15,14 @@ struct ProfileView: View {
             VStack(alignment: .leading, spacing: 26) {
                 header
                 stats.padding(.horizontal, 20)
+                WeekActivity(profile: library.active).padding(.horizontal, 20)
                 switcher
                 VStack(spacing: 0) {
                     NavigationLink { HistoryView() } label: { MenuRow(title: "Verlauf", icon: "clock.arrow.circlepath", detail: library.history.isEmpty ? nil : "\(library.history.count)") }
+                    Divider().overlay(Theme.stroke).padding(.leading, 56)
+                    NavigationLink { FinishedView() } label: {
+                        MenuRow(title: "Fertig geschaut", icon: "checkmark.seal", detail: "\(library.favorites.filter { library.status(for: $0) == .completed }.count)")
+                    }
                     Divider().overlay(Theme.stroke).padding(.leading, 56)
                     NavigationLink { CalendarView() } label: { MenuRow(title: "Simulcast-Kalender", icon: "calendar") }
                     Divider().overlay(Theme.stroke).padding(.leading, 56)

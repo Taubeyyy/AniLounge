@@ -122,7 +122,7 @@ public struct ProfileLibrary: Codable, Sendable {
     }
     public mutating func clearHistory() { history.removeAll() }
     /// Forgets progress and watched marks; watchlist and history stay.
-    public mutating func resetProgress() { progress.removeAll(); watched.removeAll(); hiddenContinueWatching.removeAll() }
+    public mutating func resetProgress() { progress.removeAll(); watched.removeAll(); hiddenContinueWatching.removeAll(); watchStatus.removeAll() }
     /// Time spent watching: finished episodes count fully, started ones up to their position.
     public var watchedSeconds: Double {
         progress.values.reduce(0) { total, item in total + (item.isFinished ? (item.duration ?? item.seconds) : item.seconds) }
@@ -167,12 +167,15 @@ public final class LibraryPersistence {
     public static let key = "library.v2"
     private let defaults: UserDefaults
     public init(defaults: UserDefaults = .standard) { self.defaults = defaults }
+    /// The rules every stored or imported library must meet; load() refuses anything else.
+    public static func isValid(_ snapshot: LibrarySnapshot) -> Bool {
+        snapshot.schemaVersion == 2 && !snapshot.profiles.isEmpty
+            && Set(snapshot.profiles.map { $0.profile.id }).count == snapshot.profiles.count
+            && snapshot.profiles.contains(where: { $0.profile.id == snapshot.activeProfileID })
+    }
     public func load() throws -> LibrarySnapshot {
         if let data = defaults.data(forKey: Self.key) {
-            guard let snapshot = try? JSONDecoder().decode(LibrarySnapshot.self, from: data),
-                  snapshot.schemaVersion == 2, !snapshot.profiles.isEmpty,
-                  Set(snapshot.profiles.map { $0.profile.id }).count == snapshot.profiles.count,
-                  snapshot.profiles.contains(where: { $0.profile.id == snapshot.activeProfileID }) else { throw LibraryError.unreadable }
+            guard let snapshot = try? JSONDecoder().decode(LibrarySnapshot.self, from: data), Self.isValid(snapshot) else { throw LibraryError.unreadable }
             return snapshot
         }
         // Import v0.1 exactly once, into the initial local profile. Keep legacy keys intact.
