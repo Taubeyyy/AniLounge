@@ -1,26 +1,35 @@
 import SwiftUI
+import Combine
 import AniCore
 
 @MainActor final class LibraryStore: ObservableObject {
-    @Published private(set) var snapshot: LibrarySnapshot { didSet { startedSeries = Self.started(in: snapshot) } }
+    @Published private(set) var snapshot: LibrarySnapshot { didSet { refreshList() } }
     @Published var storageError: String?
-    /// Series with any saved progress in the active profile; status lookups use it instead of
-    /// scanning every progress entry for every card.
-    private var startedSeries: Set<String> = []
-    private static func started(in snapshot: LibrarySnapshot) -> Set<String> { Set(snapshot.active.progress.values.map(\.anime.id)) }
+    @Published private(set) var listStatuses: [String: WatchStatus] = [:]
+    private var listedAnime: [Anime] = []
+    private var knownCatalogs: [String: SeriesCatalog] = [:]
+    private var catalogSubscription: AnyCancellable?
     private let persistence: LibraryPersistence
     private var writable = true
     var active: ProfileLibrary { snapshot.active }
     var profile: UserProfile { active.profile }
-    var favorites: [Anime] { active.favorites }
+    var favorites: [Anime] { listedAnime }
     var history: [HistoryEntry] { active.history }
     var watched: Set<String> { active.watched }
     var continueWatching: [EpisodeProgress] { active.continueWatching }
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, catalogs: SeriesCatalogStore? = nil) {
         persistence = LibraryPersistence(defaults: defaults)
         do { snapshot = try persistence.load() }
         catch { snapshot = LibrarySnapshot(); storageError = error.localizedDescription; writable = false }
-        startedSeries = Self.started(in: snapshot)
+        refreshList()
+        catalogSubscription = (catalogs ?? .shared).$catalogs.sink { [weak self] catalogs in
+            self?.knownCatalogs = catalogs
+            self?.refreshList()
+        }
+    }
+    private func refreshList() {
+        listedAnime = active.watchlistItems
+        listStatuses = active.listStatuses(catalogs: knownCatalogs)
     }
     /// Applies and saves a change; false when nothing was saved (the error is shown already).
     @discardableResult private func change(_ body: (inout LibrarySnapshot) throws -> Void) -> Bool {
@@ -74,23 +83,17 @@ import AniCore
         guard change({ $0 = imported }) else { throw LibraryError.unreadable }
     }
     func status(for anime: Anime) -> WatchStatus {
-        active.watchStatus[anime.id] ?? (startedSeries.contains(anime.id) ? .watching : .planned)
+        listStatuses[anime.id] ?? active.watchStatus[anime.id] ?? .planned
     }
     /// Takes a series off the watchlist and forgets its status, in one save and one message.
     func removeFromList(_ anime: Anime) {
-        guard change({ $0.update(profile.id) { library in
-            library.setStatus(nil, for: anime)
-            library.favorites.removeAll { $0.id == anime.id }
-        } }) else { return }
+        guard change({ $0.update(profile.id) { $0.removeFromWatchlist(anime) } }) else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         ToastCenter.shared.show("Aus der Liste entfernt", icon: "bookmark.slash")
     }
     /// Sets a list status (nil = automatic) and keeps the series on the watchlist.
     func setStatus(_ status: WatchStatus?, for anime: Anime) {
-        change { $0.update(profile.id) { library in
-            library.setStatus(status, for: anime)
-            if status != nil, !library.favorites.contains(where: { $0.id == anime.id }) { library.toggleFavorite(anime) }
-        } }
+        guard change({ $0.update(profile.id) { $0.setStatus(status, for: anime) } }) else { return }
         UISelectionFeedbackGenerator().selectionChanged()
         ToastCenter.shared.show(status.map { "Status: \($0.label)" } ?? "Status automatisch", icon: status?.symbol ?? "wand.and.stars")
     }
