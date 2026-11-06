@@ -46,6 +46,36 @@ import AniCore
     }
     func clearHistory() { change { $0.update(profile.id) { $0.clearHistory() } } }
     func resetProgress() { change { $0.update(profile.id) { $0.resetProgress() } } }
+    /// Marks several episodes at once, e.g. "up to here" or a whole season, in one save.
+    func markWatched(_ episodes: [Episode], anime: Anime) {
+        change { snapshot in try snapshot.update(profile.id) { library in for episode in episodes { try library.setWatched(true, episode: episode, anime: anime) } } }
+        ToastCenter.shared.show(episodes.count == 1 ? "Als gesehen markiert" : "\(episodes.count) Folgen als gesehen markiert", icon: "checkmark.circle.fill")
+    }
+    /// All profiles, watchlists and progress as JSON, for a backup outside the app.
+    func exportBackup() throws -> URL {
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted, .sortedKeys]; encoder.dateEncodingStrategy = .iso8601
+        let stamp = Date().formatted(.iso8601.year().month().day())
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("AniLounge-Sicherung-\(stamp).json")
+        try encoder.encode(snapshot).write(to: url, options: .atomic)
+        return url
+    }
+    /// Replaces everything with a backup, after checking it is a complete AniLounge library.
+    func importBackup(_ data: Data) throws {
+        let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .iso8601
+        guard let imported = try? decoder.decode(LibrarySnapshot.self, from: data), !imported.profiles.isEmpty,
+              imported.profiles.contains(where: { $0.profile.id == imported.activeProfileID }) else { throw LibraryError.unreadable }
+        change { $0 = imported }
+    }
+    func status(for anime: Anime) -> WatchStatus { active.status(for: anime) }
+    /// Sets a list status (nil = automatic) and keeps the series on the watchlist.
+    func setStatus(_ status: WatchStatus?, for anime: Anime) {
+        change { $0.update(profile.id) { library in
+            library.setStatus(status, for: anime)
+            if status != nil, !library.favorites.contains(where: { $0.id == anime.id }) { library.toggleFavorite(anime) }
+        } }
+        UISelectionFeedbackGenerator().selectionChanged()
+        ToastCenter.shared.show(status.map { "Status: \($0.label)" } ?? "Status automatisch", icon: status?.symbol ?? "wand.and.stars")
+    }
     func setWatched(_ value: Bool, episode: Episode, anime: Anime) {
         change { try $0.update(profile.id) { try $0.setWatched(value, episode: episode, anime: anime) } }
     }

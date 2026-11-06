@@ -108,4 +108,41 @@ final class MetadataTests: XCTestCase {
         XCTAssertTrue(profile.progress.isEmpty); XCTAssertTrue(profile.watched.isEmpty)
         XCTAssertEqual(profile.favorites.count, 1, "The watchlist survives a progress reset")
     }
+    func testCatalogGenresGroupSeries() throws {
+        let genres = try AniParser.genres("""
+        <div class="genre"><div class="seriesGenreList"><h3>Abenteuer</h3></div><ul>
+          <li><a href="/anime/stream/a">A</a></li><li><a href="/anime/stream/b">B</a></li></ul></div>
+        <div class="genre"><div class="seriesGenreList"><h3>Mecha</h3></div><ul><li><a href="/anime/stream/c">C</a></li></ul></div>
+        <div class="genre"><h3>Leer</h3><ul></ul></div>
+        """)
+        XCTAssertEqual(genres.map(\.name), ["Abenteuer", "Mecha"])
+        XCTAssertEqual(genres[0].anime.map(\.path), ["/anime/stream/a", "/anime/stream/b"])
+    }
+    func testAiringScheduleSkipsAdultTitles() throws {
+        let data = Data("""
+        {"data":{"Page":{"pageInfo":{"hasNextPage":true},"airingSchedules":[
+          {"episode":6,"airingAt":1762435800,"media":{"id":1,"isAdult":false,"title":{"romaji":"Koori no Jouheki 2nd Season","english":null},"synonyms":["Ice Wall"]}},
+          {"episode":2,"airingAt":1762436000,"media":{"id":2,"isAdult":true,"title":{"romaji":"Hidden"},"synonyms":[]}}]}}}
+        """.utf8)
+        let result = try MetadataParser.airing(fromAniList: data)
+        XCTAssertTrue(result.hasNextPage)
+        XCTAssertEqual(result.entries.map(\.episode), [6])
+        XCTAssertEqual(result.entries[0].titles, ["Koori no Jouheki 2nd Season", "Ice Wall"])
+    }
+    func testWatchStatusIsDerivedUntilSetAndSurvivesOldData() throws {
+        var profile = ProfileLibrary()
+        let anime = Anime(path: "/anime/stream/a", title: "A")
+        XCTAssertEqual(profile.status(for: anime), .planned)
+        try profile.saveProgress(Episode(path: "/anime/stream/a/staffel-1/episode-1", number: "1", title: "Eins", languages: []),
+                                 anime: anime, seconds: 60, duration: 1440, completed: false)
+        XCTAssertEqual(profile.status(for: anime), .watching)
+        profile.setStatus(.paused, for: anime)
+        XCTAssertEqual(profile.status(for: anime), .paused)
+        let roundTrip = try JSONDecoder().decode(ProfileLibrary.self, from: JSONEncoder().encode(profile))
+        XCTAssertEqual(roundTrip.status(for: anime), .paused)
+        profile.setStatus(nil, for: anime)
+        XCTAssertEqual(profile.status(for: anime), .watching)
+        let legacy = try JSONDecoder().decode(ProfileLibrary.self, from: Data(#"{"profile":{"id":"8F0C2A4E-1B7D-4E5F-9A3B-2C6D8E0F1A2B","name":"Alt","avatar":"sparkles"},"favorites":[],"history":[],"watched":[],"progress":{}}"#.utf8))
+        XCTAssertTrue(legacy.watchStatus.isEmpty)
+    }
 }

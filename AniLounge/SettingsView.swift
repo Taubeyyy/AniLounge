@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import AVFoundation
 import AniCore
 
@@ -78,6 +79,9 @@ struct SettingsView: View {
     @ObservedObject private var downloads = DownloadStore.shared
     @State private var confirm: Confirmation?
     @State private var notice: String?
+    @State private var backupURL: URL?
+    @State private var importing = false
+    @State private var pendingImport: Data?
     private enum Confirmation: Identifiable {
         case downloads, history, progress
         var id: Int { hashValue }
@@ -112,6 +116,23 @@ struct SettingsView: View {
                     SettingsButton(title: "Verlauf löschen", icon: "clock.arrow.circlepath", destructive: true) { confirm = .history }
                     SettingsButton(title: "Fortschritt zurücksetzen", icon: "arrow.counterclockwise", destructive: true) { confirm = .progress }
                 }
+                SettingsSection(title: "Sicherung") {
+                    if let backupURL {
+                        ShareLink(item: backupURL) {
+                            HStack(spacing: 12) {
+                                Image(systemName: "square.and.arrow.up").font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
+                                    .frame(width: 30, height: 30).background(Theme.accent.gradient).clipShape(RoundedRectangle(cornerRadius: 8))
+                                Text("Sicherung teilen oder speichern").font(.subheadline.weight(.semibold))
+                                Spacer()
+                            }.padding(.horizontal, 14).padding(.vertical, 11).contentShape(Rectangle())
+                        }.foregroundColor(.white)
+                    } else {
+                        SettingsButton(title: "Sicherung erstellen", icon: "externaldrive.fill.badge.plus") {
+                            do { backupURL = try library.exportBackup() } catch { notice = "Sicherung fehlgeschlagen" }
+                        }
+                    }
+                    SettingsButton(title: "Sicherung wiederherstellen", icon: "externaldrive.fill.badge.timemachine") { importing = true }
+                }
                 SettingsSection(title: "Hilfe") {
                     NavigationLink { DebugLogView() } label: {
                         HStack(spacing: 12) {
@@ -134,6 +155,25 @@ struct SettingsView: View {
             }.padding(.horizontal, 20)
         } leading: {
             BackButton()
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
+            guard case .success(let url) = result else { return }
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            pendingImport = try? Data(contentsOf: url)
+            if pendingImport == nil { notice = "Datei konnte nicht gelesen werden" }
+        }
+        .confirmationDialog("Sicherung wiederherstellen?", isPresented: Binding(get: { pendingImport != nil }, set: { if !$0 { pendingImport = nil } }), titleVisibility: .visible) {
+            Button("Alles ersetzen", role: .destructive) {
+                if let data = pendingImport {
+                    do { try library.importBackup(data); ToastCenter.shared.show("Sicherung wiederhergestellt") }
+                    catch { notice = "Keine gültige AniLounge-Sicherung" }
+                }
+                pendingImport = nil
+            }
+            Button("Abbrechen", role: .cancel) { pendingImport = nil }
+        } message: {
+            Text("Profile, Watchlists und Fortschritt auf diesem Gerät werden durch die Sicherung ersetzt. Downloads bleiben.")
         }
         .confirmationDialog(confirmTitle, isPresented: Binding(get: { confirm != nil }, set: { if !$0 { confirm = nil } }), titleVisibility: .visible) {
             Button("Löschen", role: .destructive) {

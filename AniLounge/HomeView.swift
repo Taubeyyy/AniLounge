@@ -9,14 +9,18 @@ struct HomeView: View {
     var body: some View {
         LoungeScroll(title: "", underBar: false, threshold: 40) {
             LazyVStack(alignment: .leading, spacing: 30) {
-                // Personal content is available even when the online feed has never loaded.
+                // The stage comes first, like streaming apps; personal rows follow and stay
+                // available even when the online feed has never loaded.
+                if let feed { HeroCarousel(items: Array((feed.featured.isEmpty ? feed.popular : feed.featured).prefix(6))).transition(.opacity) }
+                NewEpisodesShelf()
                 ContinueWatchingShelf()
+                TodaySimulcastShelf()
                 RecentShelf()
                 if feed == nil { AnimeShelf(title: "Meine Liste", items: library.favorites) }
                 if let feed {
-                    HeroCarousel(items: Array((feed.featured.isEmpty ? feed.popular : feed.featured).prefix(6)))
                     if let error { Text(error).font(.footnote).foregroundColor(.orange).padding(.horizontal, 20) }
-                    AnimeShelf(title: "Beliebt auf AniWorld", items: feed.popular)
+                    TopTenShelf(title: "Top 10 auf AniWorld", items: feed.popular)
+                    AnimeShelf(title: "Beliebt auf AniWorld", items: Array(feed.popular.dropFirst(10)))
                     AnimeShelf(title: "Neue Folgen", items: Array(feed.recent.prefix(30)))
                     AnimeShelf(title: "Auf der Startseite", items: feed.featured)
                 } else if let error {
@@ -28,11 +32,23 @@ struct HomeView: View {
         } leading: {
             LoungeLogo()
         } trailing: {
-            NavigationLink { ProfileView() } label: { CircleIcon(systemName: library.profile.avatar) }
-                .accessibilityLabel("Profil: \(library.profile.name)")
+            HStack(spacing: 10) {
+                NavigationLink { CalendarView() } label: { CircleIcon(systemName: "calendar") }.accessibilityLabel("Simulcast-Kalender")
+                NavigationLink { ProfileView() } label: { CircleIcon(systemName: library.profile.avatar) }
+                    .accessibilityLabel("Profil: \(library.profile.name)")
+            }
         }
         .task { if feed == nil { await load() } }
-        .task(id: library.profile.id) { await SeriesCatalogStore.shared.refreshContinuations(library.active) }
+        .task(id: library.profile.id) {
+            await SeriesCatalogStore.shared.refreshContinuations(library.active)
+            NewEpisodeTracker.shared.evaluate(profile: library.active, catalogs: SeriesCatalogStore.shared.catalogs)
+        }
+        .onReceive(SeriesCatalogStore.shared.$catalogs) { NewEpisodeTracker.shared.evaluate(profile: library.active, catalogs: $0) }
+        .task { await SimulcastStore.shared.load() }
+        .onChange(of: library.active.continuationCandidates.first?.anime.id) { _ in
+            QuickActions.refresh(continueTitle: library.active.continuationCandidates.first?.anime.title)
+        }
+        .onAppear { QuickActions.refresh(continueTitle: library.active.continuationCandidates.first?.anime.title) }
         .refreshable {
             await AniClient.shared.clearCache()
             await load()
@@ -43,13 +59,17 @@ struct HomeView: View {
         guard !loading else { return }
         loading = true; error = nil
         defer { loading = false }
-        do { feed = try await AniClient.shared.home() }
+        do {
+            let loaded = try await AniClient.shared.home()
+            withAnimation(.easeOut(duration: 0.4)) { feed = loaded }
+        }
         catch { if !Task.isCancelled { self.error = error.localizedDescription } }
     }
 }
 struct HeroCarousel: View {
     let items: [Anime]
     @State private var page = 0
+    @State private var tint: Color?
     @ScaledMetric(relativeTo: .title) private var heroHeight = 360
     @ObservedObject private var settings = AppSettings.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -67,7 +87,19 @@ struct HeroCarousel: View {
             }
             .frame(height: min(heroHeight, 520)).clipShape(RoundedRectangle(cornerRadius: 24))
             .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.stroke))
+            .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
             .padding(.horizontal, 20)
+            // The artwork's colour washes over the top of the screen and changes with each slide.
+            .background(alignment: .top) {
+                LinearGradient(colors: [(tint ?? Theme.panel).opacity(0.9), (tint ?? Theme.panel).opacity(0.35), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: min(heroHeight, 520) + 340).offset(y: -170)
+                    .blur(radius: 30).allowsHitTesting(false).accessibilityHidden(true)
+                    .animation(.easeInOut(duration: 0.8), value: tint)
+            }
+            .task(id: items.indices.contains(page) ? items[page].id : "") {
+                guard items.indices.contains(page), let color = await AmbientColor.color(for: items[page]), !Task.isCancelled else { return }
+                tint = color
+            }
             // Gentle auto-advance like streaming apps; a manual swipe restarts the timer.
             .task(id: "\(page)|\(settings.heroAutoAdvance)|\(reduceMotion)|\(items.count)") {
                 guard !reduceMotion, settings.heroAutoAdvance, items.count > 1 else { return }
@@ -92,7 +124,7 @@ struct HeroView: View {
                     .lineLimit(3).minimumScaleFactor(0.85).shadow(color: .black.opacity(0.5), radius: 10)
                 HStack(spacing: 12) {
                     NavigationLink { DetailView(anime: anime) } label: {
-                        Label("Details", systemImage: "info.circle").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 13)
+                        Label("Ansehen", systemImage: "play.fill").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 13)
                             .background(Color.white).foregroundColor(.black).clipShape(RoundedRectangle(cornerRadius: 10))
                     }.buttonStyle(LoungePressStyle())
                     Button { library.toggleWatchlist(anime) } label: {
@@ -156,9 +188,12 @@ struct RecentShelf: View {
 struct ContinueWatchingShelf: View {
     @EnvironmentObject private var library: LibraryStore
     @ObservedObject private var catalogs = SeriesCatalogStore.shared
+    @ObservedObject private var tracker = NewEpisodeTracker.shared
     private var items: [EpisodeProgress] {
         library.active.continuationCandidates.filter {
-            SeriesPlaybackState.start(anime: $0.anime, profile: library.active, catalog: catalogs.catalogs[$0.anime.id]) != .caughtUp
+            let decision = SeriesPlaybackState.start(anime: $0.anime, profile: library.active, catalog: catalogs.catalogs[$0.anime.id])
+            // New episodes have their own row above.
+            return decision != .caughtUp && !tracker.isNew($0.anime, decision: decision)
         }
     }
     var body: some View {

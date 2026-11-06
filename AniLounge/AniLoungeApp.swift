@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import AniCore
 
 @main struct AniLoungeApp: App {
@@ -13,7 +14,10 @@ import AniCore
 struct RootView: View {
     @EnvironmentObject private var library: LibraryStore
     @ObservedObject private var playback = PlaybackCenter.shared
+    @ObservedObject private var quickActions = QuickActions.shared
+    @ObservedObject private var catalogs = SeriesCatalogStore.shared
     @State private var selected = 0
+    @State private var showingCalendar = false
     private let tabs = [("Start", "house.fill"), ("Suche", "magnifyingglass"), ("Watchlist", "bookmark.fill"), ("Downloads", "arrow.down.circle.fill"), ("Profil", "person.crop.circle.fill")]
     var body: some View {
         TabView(selection: $selected) {
@@ -38,7 +42,28 @@ struct RootView: View {
             } message: { prompt in
                 Text("Die gespeicherte Fassung (\(prompt.option.language ?? "Sprache unbekannt")) entspricht nicht deiner bevorzugten Sprache. Möchtest du sie trotzdem ansehen?")
             }
+        .onReceive(quickActions.$pending.compactMap { $0 }) { handle($0) }
+        .sheet(isPresented: $showingCalendar) { NavigationStack { CalendarView() }.preferredColorScheme(.dark) }
         .alert("Speichern nicht möglich", isPresented: Binding(get: { library.storageError != nil }, set: { if !$0 { library.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(library.storageError ?? "") }
+    }
+}
+extension RootView {
+    /// Home screen quick action: continue the newest series, open the calendar or search.
+    func handle(_ action: String) {
+        quickActions.pending = nil
+        switch action {
+        case QuickActions.continueType:
+            for item in library.active.continuationCandidates {
+                if let episode = SeriesPlaybackState.start(anime: item.anime, profile: library.active, catalog: catalogs.catalogs[item.anime.id]).episode {
+                    PlaybackCenter.shared.open(PlaybackRequest(anime: item.anime, episode: episode, profileID: library.profile.id), library: library)
+                    return
+                }
+            }
+            selected = 0
+        case QuickActions.calendarType: showingCalendar = true
+        case QuickActions.searchType: selected = 1
+        default: break
+        }
     }
 }
 struct LoungeTabBar: View {
@@ -56,6 +81,8 @@ struct LoungeTabBar: View {
                 } label: {
                     VStack(spacing: 4) {
                         Image(systemName: tabs[index].1).font(.system(size: 19, weight: .semibold))
+                            .scaleEffect(selected == index && !reduceMotion ? 1.12 : 1)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.5), value: selected)
                         Text(tabs[index].0).font(.caption2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
                     }.frame(maxWidth: .infinity).padding(.vertical, 10)
                         .foregroundColor(selected == index ? .white : Theme.muted)
@@ -111,13 +138,10 @@ struct SectionHeader: View {
     let title: String
     var subtitle: String? = nil
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 4, height: 18)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(.title3, design: .rounded).bold())
-                if let subtitle { Text(subtitle).font(.caption).foregroundColor(Theme.accentSoft) }
-            }
-        }.padding(.horizontal, 20).accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.title3.weight(.bold))
+            if let subtitle { Text(subtitle).font(.caption).foregroundColor(Theme.muted) }
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).accessibilityAddTraits(.isHeader)
     }
 }
 struct PosterSkeleton: View {
@@ -186,6 +210,12 @@ struct PosterCard: View {
                     }
                 }
                 .shadow(color: .black.opacity(0.4), radius: 10, y: 6)
+                .contextMenu {
+                    Button { library.toggleWatchlist(anime) } label: {
+                        Label(saved ? "Von der Watchlist entfernen" : "Zur Watchlist", systemImage: saved ? "bookmark.slash" : "bookmark")
+                    }
+                    if let url = AniURL.page(anime.path) { ShareLink(item: url) { Label("Teilen", systemImage: "square.and.arrow.up") } }
+                }
             Text(anime.title).font(.caption.weight(.semibold)).lineLimit(3).fixedSize(horizontal: false, vertical: true)
         }.frame(width: width).foregroundColor(.white)
     }
@@ -201,6 +231,38 @@ struct AnimeShelf: View {
                     LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(items) { anime in
                             NavigationLink { DetailView(anime: anime) } label: { PosterCard(anime: anime) }.buttonStyle(LoungePressStyle())
+                        }
+                    }.padding(.horizontal, 20)
+                }
+            }
+        }
+    }
+}
+/// Netflix-style ranking row: large outlined numerals tucked behind the posters.
+struct TopTenShelf: View {
+    let title: String
+    let items: [Anime]
+    var body: some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                SectionHeader(title: title)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .bottom, spacing: 6) {
+                        ForEach(Array(items.prefix(10).enumerated()), id: \.element.id) { index, anime in
+                            NavigationLink { DetailView(anime: anime) } label: {
+                                HStack(alignment: .bottom, spacing: -22) {
+                                    Text("\(index + 1)")
+                                        .font(.system(size: 104, weight: .black, design: .rounded)).monospacedDigit()
+                                        .foregroundStyle(LinearGradient(colors: [.white.opacity(0.85), .white.opacity(0.15)], startPoint: .top, endPoint: .bottom))
+                                        .shadow(color: .black.opacity(0.6), radius: 1, x: 2, y: 0)
+                                        .frame(minWidth: 52, alignment: .trailing).offset(y: 14)
+                                        .accessibilityHidden(true)
+                                    AnimeArtwork(anime: anime).frame(width: 104, height: 156)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.stroke))
+                                        .shadow(color: .black.opacity(0.5), radius: 8, x: -4)
+                                }
+                            }.buttonStyle(LoungePressStyle()).accessibilityLabel("Platz \(index + 1): \(anime.title)")
                         }
                     }.padding(.horizontal, 20)
                 }

@@ -34,11 +34,22 @@ public struct SkipTimes: Sendable, Equatable {
     public let ending: ClosedRange<Double>?
     /// Length of the video the times were measured on.
     public let episodeLength: Double?
+    /// "Previously on" recap at the start of an episode, when AniSkip knows it.
+    public var recap: ClosedRange<Double>? = nil
     /// Times are only trusted when the playing video has about the same length.
     public func fits(duration: Double?) -> Bool {
         guard let duration, duration.isFinite, duration > 0, let episodeLength, episodeLength > 0 else { return true }
         return abs(duration - episodeLength) <= 45
     }
+}
+/// One upcoming or recent broadcast from AniList's airing schedule.
+public struct AiringEntry: Identifiable, Hashable, Sendable {
+    public var id: String { "\(anilistID)#\(episode)" }
+    public let anilistID: Int
+    public let episode: Int
+    public let airingAt: Date
+    /// Romaji, English and synonyms, for matching against the AniWorld catalog.
+    public let titles: [String]
 }
 struct AniZipEpisode: Sendable {
     let season: Int?
@@ -126,7 +137,7 @@ public enum MetadataParser {
     public static func skipTimes(fromAniSkip data: Data) throws -> SkipTimes? {
         let json = try object(data)
         guard json["found"] as? Bool == true, let results = json["results"] as? [[String: Any]] else { return nil }
-        var opening: ClosedRange<Double>?, ending: ClosedRange<Double>?, length: Double?
+        var opening: ClosedRange<Double>?, ending: ClosedRange<Double>?, recap: ClosedRange<Double>?, length: Double?
         for result in results {
             guard let interval = result["interval"] as? [String: Any],
                   let start = (interval["startTime"] as? NSNumber)?.doubleValue, let end = (interval["endTime"] as? NSNumber)?.doubleValue,
@@ -134,11 +145,25 @@ public enum MetadataParser {
             switch result["skipType"] as? String {
             case "op" where opening == nil: opening = start...end
             case "ed" where ending == nil: ending = start...end
+            case "recap" where recap == nil: recap = start...end
             default: continue
             }
             if length == nil, let value = (result["episodeLength"] as? NSNumber)?.doubleValue, value > 0 { length = value }
         }
-        return opening == nil && ending == nil ? nil : SkipTimes(opening: opening, ending: ending, episodeLength: length)
+        guard opening != nil || ending != nil || recap != nil else { return nil }
+        return SkipTimes(opening: opening, ending: ending, episodeLength: length, recap: recap)
+    }
+    public static func airing(fromAniList data: Data) throws -> (entries: [AiringEntry], hasNextPage: Bool) {
+        guard let page = (try object(data)["data"] as? [String: Any])?["Page"] as? [String: Any] else { throw AniError.missingContent }
+        let more = (page["pageInfo"] as? [String: Any])?["hasNextPage"] as? Bool ?? false
+        let entries: [AiringEntry] = ((page["airingSchedules"] as? [[String: Any]]) ?? []).compactMap { item in
+            guard let episode = item["episode"] as? Int, let at = item["airingAt"] as? Int,
+                  let media = item["media"] as? [String: Any], let id = media["id"] as? Int, media["isAdult"] as? Bool != true else { return nil }
+            let title = media["title"] as? [String: Any]
+            let names = [title?["romaji"], title?["english"]].compactMap { $0 as? String } + ((media["synonyms"] as? [String]) ?? [])
+            return names.isEmpty ? nil : AiringEntry(anilistID: id, episode: episode, airingAt: Date(timeIntervalSince1970: TimeInterval(at)), titles: names)
+        }
+        return (entries, more)
     }
     /// AniWorld's IMDb link, e.g. `tt0388629`.
     public static func validIMDb(_ value: String) -> String? {
@@ -158,6 +183,27 @@ public actor MetadataClient {
     /// AniList relations rarely change; remembering them keeps later seasons fast and spares the rate limit.
     private var sequels: [Int: Int] = [:]
     private var extras: [Int: AnimeExtras] = [:]
+    private var airing: (loaded: Date, entries: [AiringEntry])?
+    /// Broadcasts from yesterday to six days ahead, cached for half an hour.
+    public func airingWeek(now: Date = Date()) async throws -> [AiringEntry] {
+        if let airing, now.timeIntervalSince(airing.loaded) < 1800 { return airing.entries }
+        let start = Int(now.timeIntervalSince1970) - 86_400, end = Int(now.timeIntervalSince1970) + 6 * 86_400
+        let query = "query($s:Int,$e:Int,$p:Int){Page(page:$p,perPage:50){pageInfo{hasNextPage} airingSchedules(airingAt_greater:$s,airingAt_lesser:$e,sort:TIME){episode airingAt media{id isAdult title{romaji english} synonyms}}}}"
+        guard let url = URL(string: "https://graphql.anilist.co") else { throw AniError.invalidURL }
+        var all: [AiringEntry] = []
+        for page in 1...5 {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "variables": ["s": start, "e": end, "p": page]])
+            let result = try MetadataParser.airing(fromAniList: try await fetch(request))
+            all += result.entries
+            if !result.hasNextPage { break }
+        }
+        airing = (now, all)
+        return all
+    }
     private var seasons: [String: [String: EpisodeExtras]] = [:]
     private var skips: [String: SkipTimes?] = [:]
     public init(defaults: UserDefaults = .standard) {
@@ -250,7 +296,7 @@ public actor MetadataClient {
         guard let mal = episode.malID, let number = episode.malEpisode, mal > 0, number > 0 else { return nil }
         let key = "\(mal)#\(number)"
         if let cached = skips[key] { return cached }
-        guard let url = URL(string: "https://api.aniskip.com/v2/skip-times/\(mal)/\(number)?types=op&types=ed&episodeLength=0") else { return nil }
+        guard let url = URL(string: "https://api.aniskip.com/v2/skip-times/\(mal)/\(number)?types=op&types=ed&types=recap&episodeLength=0") else { return nil }
         // AniSkip answers 404 when nobody submitted times yet; that is a normal "no data".
         let result = (try? await fetch(URLRequest(url: url))).flatMap { try? MetadataParser.skipTimes(fromAniSkip: $0) }
         skips[key] = result

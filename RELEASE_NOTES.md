@@ -1,14 +1,31 @@
-# AniLounge 0.9.8 · Build 19
+# AniLounge 0.9.9 · Build 20
 
-- Ruhigere dunkle Oberfläche, stärkere Textkontraste und kompaktere Startkarten.
-- Klare Navigation mit „Start“ und „Profil“, direkter Profilzugang und passend beschriftetem „Details“-Button.
-- Größere Trefferflächen und besser lesbare Kartentitel. Folgen und Downloads passen sich großer Schrift an.
-- Scrollbare Aktionsmenüs mit zusätzlicher großer Darstellung; ausklappbare Beschreibung mit eigenem Button.
-- Suche mit komfortabler Tastaturbedienung; fehlgeschlagene Downloads öffnen zuerst ihre Aktionen.
-- Player-Größe folgt dem App-Fenster, iPad erhält einen Vollbildschalter. Größere Zeitleiste und Wiedergabebuttons.
-- Player-Steuerung bleibt bei VoiceOver und geöffneten Einstellungen sichtbar.
-- Der automatische Startkartenwechsel ist für neue Einstellungen ausgeschaltet. Vorhandene persönliche Einstellungen bleiben erhalten.
+Streaming-Design nach Netflix, Disney+ und Crunchyroll (Studie: docs/DESIGN_STUDY.md).
 
-Die fünf Korrekturen aus 0.9.7 bleiben enthalten. Simulator-Aufnahmen dienen zur Layoutprüfung auf schmalen Displays, bei großer Schrift und im Querformat.
+- Umgebungsfarbe: Die Farbe des Hero- und Kopfbilds färbt den oberen Bildschirm und wechselt mit jedem Highlight.
+- Neue Reihe „Top 10 auf AniWorld“ mit großen Ziffern.
+- Hero steht wieder oben, Hauptknopf „Ansehen“; schlichte Reihen-Überschriften ohne Zierbalken.
+- Detailseite mit Reitern „Folgen · Ähnliche · Details“; der Details-Reiter sammelt Genres, Studio, Bewertung, Status, Staffeln, Sprachen und nächste Folge.
+- Infozeile unter dem Titel: Jahr · Staffeln · Sprachfassungen (DE, DE-Sub, EN-Sub).
+- Folgenzeilen zeigen zwei Zeilen Beschreibung, wenn vorhanden.
 
-Installation: AniLounge.ipa mit TrollStore als Update über die vorhandene App installieren. Profile und Downloads bleiben erhalten. Abschließende Bedien-, VoiceOver-, PiP- und Anbieterprüfungen auf einem echten iPhone/iPad stehen noch aus.
+Komfort:
+- „Bis hier als gesehen markieren“ und „Ganze Staffel als gesehen markieren“ im Folgenmenü.
+- Schlaf-Timer im Player: am Folgenende, nach 15, 30 oder 60 Minuten.
+- „Rückblick überspringen“, wenn AniSkip die Recap-Zeiten kennt.
+- Poster lange drücken: Watchlist und Teilen.
+- „Überrasch mich“ in der Suche öffnet einen zufälligen Anime.
+- Sicherung erstellen und wiederherstellen (Profile, Watchlists, Fortschritt) unter Einstellungen.
+
+Neue Funktionen:
+- Simulcast-Kalender: neue Folgen der Woche in Japan, nur Serien, die es auf AniWorld gibt; „Heute in Japan“ auf der Startseite.
+- „Neue Folgen für dich“: Serien, die du durch hattest, melden sich, sobald AniWorld neue Folgen hat.
+- Watchlist-Status wie bei AniList (Geplant, Schaue ich, Pausiert, Fertig) mit Filter in der Watchlist und Auswahl auf der Detailseite.
+- Genres in der Suche: 27 AniWorld-Genres als Kacheln zum Stöbern.
+- Player: Helligkeit links und Lautstärke rechts per Wischen, Bildschirmsperre, „Fortgesetzt bei … · Von vorne“, die nächste Folge wird gegen Ende vorgeladen, die Home-Leiste bleibt beim Schauen ausgeblendet.
+- App-Symbol lange drücken: Weiterschauen, Simulcast-Kalender, Suchen.
+- Mehr Animationen: Startseite und Folgenlisten blenden weich ein, Reiterwechsel gleiten, Tab-Symbole federn, Play/Pause wechselt animiert.
+
+Alle Korrekturen aus 0.9.7 und 0.9.8 bleiben enthalten.
+
+Installation: AniLounge.ipa mit TrollStore als Update über die vorhandene App installieren. Profile und Downloads bleiben erhalten. Prüfung auf einem echten iPhone steht noch aus.

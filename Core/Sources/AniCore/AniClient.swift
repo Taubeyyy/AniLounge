@@ -57,6 +57,7 @@ public actor AniClient {
     }
     public func home() async throws -> HomeFeed { try AniParser.home(await page("/")) }
     public func catalog() async throws -> [Anime] { try AniParser.catalog(await page("/animes")) }
+    public func genres() async throws -> [Genre] { try AniParser.genres(await page("/animes")) }
     public func detail(path: String) async throws -> AnimeDetail { try AniParser.detail(await page(path), path: path) }
     public func hosts(path: String) async throws -> [StreamHost] { try AniParser.hosts(await page(path)) }
     public func clearCache() { cache.removeAll() }

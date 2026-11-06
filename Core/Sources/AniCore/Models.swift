@@ -32,6 +32,12 @@ public struct AnimeDetail: Sendable {
     public let backdrop: URL?
     public var imdb: String? = nil
 }
+/// One genre of AniWorld's catalog page and the series listed under it.
+public struct Genre: Identifiable, Sendable {
+    public var id: String { name }
+    public let name: String
+    public let anime: [Anime]
+}
 public struct HomeFeed: Sendable {
     public let featured: [Anime]
     public let popular: [Anime]
