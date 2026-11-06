@@ -214,7 +214,6 @@ struct DetailView: View {
             DetailFact(title: "Quelle", value: "AniWorld" + (extras == nil ? "" : " · AniList"))
         }
     }
-    }
     private func episodesSection(_ detail: AnimeDetail) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Folgen").font(.system(.title3, design: .rounded).bold())
