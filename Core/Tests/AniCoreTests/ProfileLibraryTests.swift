@@ -61,6 +61,52 @@ final class ProfileLibraryTests: XCTestCase {
         XCTAssertEqual(profile.progress[next.id]?.seconds, 0)
         XCTAssertTrue(profile.continueWatching.isEmpty)
     }
+
+    func testHidingSurvivesRelaunchWithoutChangingProgressOrWatchedState() throws {
+        var snapshot = LibrarySnapshot()
+        try snapshot.update(snapshot.activeProfileID) {
+            try $0.saveProgress(episode, anime: anime, seconds: 750, duration: 1440, completed: false)
+            $0.toggleFavorite(anime)
+            $0.hideContinueWatching(anime)
+        }
+        let persistence = LibraryPersistence(defaults: defaults)
+        try persistence.save(snapshot)
+        var restored = try persistence.load()
+        XCTAssertTrue(restored.active.continueWatching.isEmpty)
+        XCTAssertTrue(restored.active.continuationCandidates.isEmpty)
+        XCTAssertEqual(restored.active.progress[episode.id]?.seconds, 750)
+        XCTAssertEqual(restored.active.favorites, [anime])
+        XCTAssertEqual(restored.active.history.first?.episode.id, episode.id)
+        try restored.update(restored.activeProfileID) {
+            try $0.saveProgress(episode, anime: anime, seconds: 755, duration: 1440, completed: false)
+        }
+        XCTAssertTrue(restored.active.continuationCandidates.isEmpty)
+        restored.update(restored.activeProfileID) { $0.revealContinueWatching(anime) }
+        XCTAssertEqual(restored.active.continueWatching.first?.seconds, 755)
+    }
+
+    func testOldV2WithoutHiddenFieldKeepsDataAndExplicitCompletion() throws {
+        var profile = ProfileLibrary()
+        try profile.saveProgress(episode, anime: anime, seconds: 1400, duration: 1440, completed: true)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(profile)) as? [String: Any])
+        json.removeValue(forKey: "hiddenContinueWatching")
+        let restored = try JSONDecoder().decode(ProfileLibrary.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertTrue(restored.hiddenContinueWatching.isEmpty)
+        XCTAssertEqual(restored.progress[episode.id]?.seconds, 1400)
+        XCTAssertTrue(restored.watched.contains(episode.id))
+        XCTAssertTrue(restored.progress[episode.id]?.isFinished == true)
+    }
+
+    func testSeekingIntoCreditsDoesNotFinishEpisode() throws {
+        var profile = ProfileLibrary()
+        try profile.saveProgress(episode, anime: anime, seconds: 1430, duration: 1440, completed: false)
+        XCTAssertFalse(try XCTUnwrap(profile.progress[episode.id]).isFinished)
+        XCTAssertEqual(profile.continueWatching.first?.seconds, 1430)
+        try profile.saveProgress(episode, anime: anime, seconds: 1440, duration: 1440, completed: true)
+        XCTAssertTrue(profile.continueWatching.isEmpty)
+        XCTAssertEqual(profile.continuationCandidates.count, 1)
+    }
+
     func testInvalidProgressDoesNotOverwriteSavedPosition() throws {
         var profile = ProfileLibrary()
         try profile.saveProgress(episode, anime: anime, seconds: 100, duration: 90, completed: true)

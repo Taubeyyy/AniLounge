@@ -10,7 +10,7 @@ public struct Anime: Identifiable, Codable, Hashable, Sendable {
         self.path = path; self.title = title; self.poster = poster; self.aliases = aliases
     }
 }
-public struct Season: Identifiable, Hashable, Sendable {
+public struct Season: Identifiable, Codable, Hashable, Sendable {
     public var id: String { path }
     public let path: String
     public let title: String

@@ -3,6 +3,7 @@ import AniCore
 
 struct DownloadsView: View {
     @EnvironmentObject private var library: LibraryStore
+    @Environment(\.dynamicTypeSize) private var typeSize
     @ObservedObject private var downloads = DownloadStore.shared
     @State private var actionsFor: EpisodeDownload?
     @State private var deleting: EpisodeDownload?
@@ -43,7 +44,8 @@ struct DownloadsView: View {
         let local = downloads.localURL(for: entry)
         return HStack(spacing: 14) {
             Button { open(entry) } label: {
-                HStack(spacing: 14) {
+                let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+                layout {
                     ZStack {
                         WideArtwork(anime: entry.anime).opacity(local == nil ? 0.55 : 1)
                         switch entry.state {
@@ -57,18 +59,18 @@ struct DownloadsView: View {
                         default:
                             Image(systemName: "exclamationmark.triangle.fill").foregroundColor(.orange)
                         }
-                    }.frame(width: 128, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
+                    }.frame(width: typeSize.isAccessibilitySize ? nil : 104, height: typeSize.isAccessibilitySize ? 132 : 64).clipShape(RoundedRectangle(cornerRadius: 8))
                         .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.stroke))
                     VStack(alignment: .leading, spacing: 4) {
                         Text(entry.anime.title).font(.caption.bold()).foregroundColor(Theme.accentSoft).lineLimit(1)
-                        Text("Folge \(entry.episode.number) · \(entry.episode.title)").font(.subheadline.bold()).lineLimit(2).multilineTextAlignment(.leading)
-                        Text(status(entry, local: local)).font(.caption.monospacedDigit()).foregroundColor(Theme.muted).lineLimit(2)
+                        Text("Folge \(entry.episode.number) · \(entry.episode.title)").font(.subheadline.bold()).lineLimit(typeSize.isAccessibilitySize ? nil : 3).multilineTextAlignment(.leading)
+                        Text(status(entry, local: local)).font(.caption.monospacedDigit()).foregroundColor(entry.state == .failed ? .orange : Theme.muted).lineLimit(2)
                     }
                     Spacer(minLength: 0)
                 }.contentShape(Rectangle())
             }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
             Button { actionsFor = entry } label: {
-                Image(systemName: "ellipsis").font(.body.weight(.bold)).foregroundColor(Theme.muted).frame(width: 30, height: 44).contentShape(Rectangle())
+                Image(systemName: "ellipsis").font(.body.weight(.bold)).foregroundColor(Theme.muted).frame(width: 44, height: 44).contentShape(Rectangle())
             }.accessibilityLabel("Optionen")
         }
     }
@@ -89,7 +91,7 @@ struct DownloadsView: View {
         } else if entry.state == .downloading || entry.state == .checking {
             actionsFor = entry
         } else {
-            play(PlaybackRequest(anime: entry.anime, episode: entry.episode, profileID: entry.profileID))
+            actionsFor = entry
         }
     }
     private func actions(_ entry: EpisodeDownload) -> some View {

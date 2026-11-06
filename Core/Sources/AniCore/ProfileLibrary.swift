@@ -14,7 +14,7 @@ public struct HistoryEntry: Identifiable, Codable, Sendable {
     public let episode: Episode
     public let openedAt: Date
 }
-public struct EpisodeProgress: Identifiable, Codable, Sendable {
+public struct EpisodeProgress: Identifiable, Codable, Equatable, Sendable {
     public var id: String { episode.id }
     public let anime: Anime
     public let episode: Episode
@@ -27,12 +27,8 @@ public struct EpisodeProgress: Identifiable, Codable, Sendable {
         return min(1, max(0, seconds / duration))
     }
     public var timeLabel: String { Self.format(seconds) }
-    /// Watched, or close enough to the end that only credits remain (like streaming apps).
-    public var isFinished: Bool { completed || Self.finished(seconds: seconds, duration: duration) }
-    public static func finished(seconds: Double, duration: Double?) -> Bool {
-        guard let duration, duration.isFinite, duration >= 90, seconds.isFinite else { return false }
-        return seconds >= min(duration - 10, max(duration * 0.9, duration - 120))
-    }
+    /// Only an actual end event or an explicit watched action completes an episode.
+    public var isFinished: Bool { completed }
     public static func format(_ seconds: Double) -> String {
         let value = Int(max(0, min(86400, seconds.isFinite ? seconds : 0)))
         return value >= 3600 ? String(format: "%d:%02d:%02d", value / 3600, value / 60 % 60, value % 60) : String(format: "%d:%02d", value / 60, value % 60)
@@ -44,13 +40,35 @@ public struct ProfileLibrary: Codable, Sendable {
     public var history: [HistoryEntry] = []
     public var watched: Set<String> = []
     public var progress: [String: EpisodeProgress] = [:]
+    public var hiddenContinueWatching: Set<String> = []
     public init(profile: UserProfile = UserProfile()) { self.profile = profile }
+    private enum CodingKeys: String, CodingKey { case profile, favorites, history, watched, progress, hiddenContinueWatching }
+    public init(from decoder: Decoder) throws {
+        let data = try decoder.container(keyedBy: CodingKeys.self)
+        profile = try data.decode(UserProfile.self, forKey: .profile)
+        favorites = try data.decode([Anime].self, forKey: .favorites)
+        history = try data.decode([HistoryEntry].self, forKey: .history)
+        watched = try data.decode(Set<String>.self, forKey: .watched)
+        progress = try data.decode([String: EpisodeProgress].self, forKey: .progress)
+        // Additive v2 field: old installations keep every existing position and watched mark.
+        hiddenContinueWatching = try data.decodeIfPresent(Set<String>.self, forKey: .hiddenContinueWatching) ?? []
+    }
+    public mutating func hideContinueWatching(_ anime: Anime) { hiddenContinueWatching.insert(anime.id) }
+    public mutating func revealContinueWatching(_ anime: Anime) { hiddenContinueWatching.remove(anime.id) }
+    /// Also includes finished series so a known next episode can be offered.
+    public var continuationCandidates: [EpisodeProgress] {
+        var seen = Set<String>()
+        return progress.values.sorted { $0.updatedAt > $1.updatedAt }.filter {
+            seen.insert($0.anime.id).inserted && !hiddenContinueWatching.contains($0.anime.id)
+                && ($0.seconds > 0 || $0.completed)
+        }
+    }
     public var continueWatching: [EpisodeProgress] {
         var seen = Set<String>()
         // The newest progress per anime decides whether it is still in progress.
         return progress.values.sorted { $0.updatedAt > $1.updatedAt }.filter {
             guard seen.insert($0.anime.id).inserted else { return false }
-            return !$0.isFinished && $0.seconds > 0
+            return !$0.isFinished && $0.seconds > 0 && !hiddenContinueWatching.contains($0.anime.id)
         }
     }
     public func latest(for anime: Anime) -> EpisodeProgress? {
@@ -75,7 +93,7 @@ public struct ProfileLibrary: Codable, Sendable {
     }
     public mutating func clearHistory() { history.removeAll() }
     /// Forgets progress and watched marks; watchlist and history stay.
-    public mutating func resetProgress() { progress.removeAll(); watched.removeAll() }
+    public mutating func resetProgress() { progress.removeAll(); watched.removeAll(); hiddenContinueWatching.removeAll() }
     /// Time spent watching: finished episodes count fully, started ones up to their position.
     public var watchedSeconds: Double {
         progress.values.reduce(0) { total, item in total + (item.isFinished ? (item.duration ?? item.seconds) : item.seconds) }

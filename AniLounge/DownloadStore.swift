@@ -17,6 +17,20 @@ struct EpisodeDownload: Codable, Identifiable {
     var bytes: Int64 = 0
     var relativePath: String?
     var message: String?
+    var sessionID: String? = nil
+    var language: String? = nil
+    var editionLanguage: String? {
+        if let language { return language }
+        // Migrate the old display string only when it actually includes a language component.
+        let parts = source.components(separatedBy: " · ")
+        return parts.count > 1 ? parts.last : nil
+    }
+}
+
+struct OfflinePlaybackOption {
+    let request: PlaybackRequest
+    let language: String?
+    let requiresConfirmation: Bool
 }
 
 /// All delegate callbacks use the main queue, matching the store's isolation.
@@ -36,6 +50,7 @@ struct EpisodeDownload: Codable, Identifiable {
     private var validations: [UUID: Task<Void, Never>] = [:]
     private var completions: [String: () -> Void] = [:]
     private var finishedEvents = Set<String>()
+    private var restoration: DownloadRestoration?
     private var started = false
     private var canSave = true
     private lazy var files = URLSession(configuration: configuration(Self.fileSessionID), delegate: self, delegateQueue: .main)
@@ -70,27 +85,44 @@ struct EpisodeDownload: Codable, Identifiable {
     }
     func start() {
         guard !started, canSave else { return }; started = true
-        // Snapshot only existing entries: newly started tasks must not be marked interrupted.
-        let pending = items.filter { $0.state == .downloading }.map(\.id)
+        beginRestoration(sessionIDs: [Self.fileSessionID, Self.hlsSessionID, Self.hlsWifiSessionID])
         for session in [files, streams as URLSession, wifiStreams as URLSession] {
+            let sessionID = session.configuration.identifier!
             session.getAllTasks { [weak self] restored in
-                Task { @MainActor in
-                    guard let self else { return }
-                    for task in restored {
-                        guard let id = self.id(task), self.items.contains(where: { $0.id == id && $0.state == .downloading }) else { task.cancel(); continue }
-                        self.tasks[id] = task
-                    }
-                    let hls = session.configuration.identifier != Self.fileSessionID
-                    for id in pending where self.items.contains(where: { $0.id == id && $0.isHLS == hls && $0.state == .downloading }) && self.tasks[id] == nil {
-                        self.fail(id, "Download unterbrochen. Folge online öffnen und erneut herunterladen.")
-                    }
-                }
+                Task { @MainActor in self?.restoreTasks(restored, sessionID: sessionID) }
             }
         }
         for entry in items where entry.state == .checking { validate(entry.id) }
         for entry in items where entry.state == .ready && localURL(for: entry) == nil {
             fail(entry.id, "Lokale Datei fehlt. Bitte erneut herunterladen.")
         }
+    }
+    // Internal entry points allow testing callback order without starting background transfers.
+    func beginRestoration(sessionIDs: Set<String>) {
+        restoration = DownloadRestoration(sessionIDs: sessionIDs,
+                                           downloadIDs: Set(items.filter { $0.state == .downloading }.map(\.id)))
+    }
+    func restoreTasks(_ restored: [URLSessionTask], sessionID: String) {
+        var found = Set<UUID>()
+        for task in restored {
+            guard let id = id(task), let entry = items.first(where: { $0.id == id && $0.state == .downloading }),
+                  entry.sessionID == nil || entry.sessionID == sessionID else { task.cancel(); continue }
+            tasks[id] = task; found.insert(id)
+            change(id) { $0.sessionID = sessionID }
+        }
+        guard let missing = restoration?.received(sessionID: sessionID, downloadIDs: found) else { return }
+        restoration = nil
+        for id in missing where active(id) && tasks[id] == nil {
+            fail(id, "Download unterbrochen. Folge online öffnen und erneut herunterladen.")
+        }
+    }
+    func offlineOption(for request: PlaybackRequest, preferredLanguage: String) -> OfflinePlaybackOption? {
+        let candidates = items.filter { $0.profileID == request.profileID && $0.episode.id == request.episode.id && localURL(for: $0) != nil }
+        guard let entry = candidates.first(where: { PlaybackLanguage.matches($0.editionLanguage ?? "", preferredLanguage) }) ?? candidates.first,
+              let url = localURL(for: entry) else { return nil }
+        var local = request; local.localURL = url; local.localLanguage = entry.editionLanguage
+        return OfflinePlaybackOption(request: local, language: entry.editionLanguage,
+                                     requiresConfirmation: !PlaybackLanguage.matches(entry.editionLanguage ?? "", preferredLanguage))
     }
     func backgroundEvents(_ identifier: String, completion: @escaping () -> Void) {
         completions[identifier] = completion; start(); completeEventsIfPossible()
@@ -108,7 +140,7 @@ struct EpisodeDownload: Codable, Identifiable {
     func existing(_ request: PlaybackRequest) -> EpisodeDownload? {
         items.first { $0.profileID == request.profileID && $0.episode.path == request.episode.path && ($0.state == .downloading || $0.state == .checking || ($0.state == .ready && localURL(for: $0) != nil)) }
     }
-    func enqueue(request: PlaybackRequest, asset: AVURLAsset, cookies: [HTTPCookie], headers: [String: String] = [:], source: String) {
+    func enqueue(request: PlaybackRequest, asset: AVURLAsset, cookies: [HTTPCookie], headers: [String: String] = [:], source: String, language: String? = nil) {
         guard canSave, existing(request) == nil, asset.url.scheme == "https" else { return }
         start()
         let ext = asset.url.pathExtension.lowercased()
@@ -116,11 +148,13 @@ struct EpisodeDownload: Codable, Identifiable {
         guard hls || ["mp4", "m4v"].contains(ext) else {
             storageError = "Diese Quelle bietet keinen unterstützten Download-Link. Bitte eine andere Quelle wählen."; return
         }
-        let entry = EpisodeDownload(id: UUID(), anime: request.anime, episode: request.episode, profileID: request.profileID, source: source, isHLS: hls)
+        var entry = EpisodeDownload(id: UUID(), anime: request.anime, episode: request.episode, profileID: request.profileID, source: source, isHLS: hls)
+        entry.language = language
         let task: URLSessionTask
         if hls {
             // Reuse the playing asset: it already carries the hoster's cookies and referer.
             let session = AppSettings.shared.wifiOnlyDownloads ? wifiStreams : streams
+            entry.sessionID = session.configuration.identifier
             guard let download = session.makeAssetDownloadTask(asset: asset, assetTitle: request.anime.title + " · " + request.episode.number, assetArtworkData: nil, options: nil) else {
                 storageError = "Dieser HLS-Stream lässt sich nicht herunterladen."; return
             }
@@ -131,6 +165,7 @@ struct EpisodeDownload: Codable, Identifiable {
             urlRequest.allHTTPHeaderFields = HTTPCookie.requestHeaderFields(with: cookies).merging(headers) { current, _ in current }
             urlRequest.allowsCellularAccess = !AppSettings.shared.wifiOnlyDownloads
             task = files.downloadTask(with: urlRequest)
+            entry.sessionID = Self.fileSessionID
         }
         task.taskDescription = entry.id.uuidString
         items.insert(entry, at: 0)

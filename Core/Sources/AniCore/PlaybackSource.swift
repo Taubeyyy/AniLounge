@@ -8,10 +8,13 @@ public struct StreamHost: Identifiable, Hashable, Sendable {
 }
 public enum PlaybackSource {
     public static func preferredHost(in hosts: [StreamHost], name: String?, language: String?) -> StreamHost? {
-        let preferredLanguage = language ?? "Deutsch"
-        let sameLanguage = hosts.filter { $0.language == preferredLanguage }
-        let pool = sameLanguage.isEmpty ? hosts : sameLanguage
-        return pool.first { $0.name == (name ?? "VOE") } ?? pool.first
+        let sameLanguage = hosts.filter { PlaybackLanguage.matches($0.language, language ?? "Deutsch") }
+        return sameLanguage.first { $0.name == (name ?? "VOE") } ?? sameLanguage.first
+    }
+
+    public static func selection(in hosts: [StreamHost], name: String?, language: String?) -> SourceSelection {
+        if let host = preferredHost(in: hosts, name: name, language: language) { return .selected(host) }
+        return hosts.isEmpty ? .unavailable : .requiresLanguageChoice(preferred: language ?? "Deutsch")
     }
 
     /// Only hand ordinary secure media URLs to AVPlayer; blob URLs belong to WebKit.

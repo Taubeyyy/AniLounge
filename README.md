@@ -54,21 +54,38 @@ Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Ap
 - Eingebetteter Webplayer als Alternative; neue Popup-Fenster und externe App-Aufrufe werden blockiert.
 - Automatisches Speichern und Fortsetzen im iOS-Player sowie bei unterstützten HTML5-Videos. Manuelle Korrektur über das Menü einer Episode.
 
-**Buildstatus:** Version 0.5.0 wurde mit 38 erfolgreichen Tests geprüft und als Ad-hoc-signierte IPA gebaut. Der aktuelle geprüfte Stand steht in `VALIDATION.json`. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
+**Buildstatus:** Die Ergebnisse für den jeweiligen Commit stehen in [GitHub Actions](https://github.com/Taubeyyy/AniLounge/actions). Der Release-Workflow veröffentlicht die IPA erst nach erfolgreichen Core-, Webtracker- und iOS-Tests sowie Paketprüfung. `VALIDATION.json` dokumentiert einen älteren Prüfstand mit eigener Versionsangabe. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
 
-[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.9.6/AniLounge.ipa) · [Release 0.9.6](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.6)
+[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.9.8/AniLounge.ipa) · [Release 0.9.8](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.8)
 
 [Builds und IPA-Artefakte](https://github.com/Taubeyyy/AniLounge/actions)
 
 Unter **Artifacts → AniLounge-TrollStore** herunterladen, ZIP in der Dateien-App entpacken und `AniLounge.ipa` über **Teilen → TrollStore** öffnen. Als Update über die vorhandene App installieren, damit lokale Daten erhalten bleiben. GitHub-Artefakte dieses Workflows werden nach 14 Tagen gelöscht.
 
+## Design und Bedienung in 0.9.8
+
+Ruhigere dunkle Flächen, besser lesbare Nebeninformationen und eine kompaktere Startkarte erhalten den lila Stil. „Start“ und „Profil“ benennen die Navigation eindeutig; „Details“ auf der Startkarte beschreibt das tatsächliche Ziel. Der automatische Kartenwechsel ist für neue Einstellungen ausgeschaltet.
+
+Größere Trefferflächen, skalierende Kartentitel und stapelnde Folgen-/Downloadzeilen erleichtern die Bedienung mit großer Schrift. Aktionsmenüs lassen sich scrollen und auf volle Höhe ziehen. Die Suche schließt die Tastatur beim Absenden. Fehlgeschlagene Downloads öffnen zuerst ihre Aktionen.
+
+Der Player verwendet die verfügbare Fensterbreite und bietet auf dem iPad einen Vollbildschalter. Zeitleiste, Springen und Wiedergabe erhalten größere Bedienelemente. Bei VoiceOver oder geöffneten Player-Einstellungen werden die Steuerungen nicht automatisch ausgeblendet. Simulator-Aufnahmen prüfen schmale und große Layouts; echte Geräte bleiben für die abschließende Bedienprüfung notwendig.
+
+## Überarbeitete Kernabläufe
+
+- „Aus Weiterschauen ausblenden“ bewahrt Fortschritt, Verlauf und Gesehen-Markierungen. Ein erneuter bewusster Wiedergabestart blendet den Titel wieder ein.
+- Startseite und Detailseite unterscheiden Fortsetzen, nächste ungesehene Folge und „Alle bekannten Folgen gesehen“. Der Player verwendet dieselbe Folgen- und Staffelauflösung.
+- Persönliche Startseitenreihen bleiben bei einem Katalogfehler sichtbar. Ein lokaler Katalogcache erlaubt die Fortsetzung bekannter Serien.
+- Beim Start wird eine gespeicherte Folge des aktuellen Profils bevorzugt. Eine abweichende oder unbekannte Downloadsprache verlangt eine Bestätigung; passende Downloads brauchen keinen Online-Katalog.
+- Die Wiederherstellung laufender Downloads wartet auf alle drei Hintergrundsessions, bevor sie fehlende Aufgaben als fehlgeschlagen markiert.
+- Pull Requests werden mit Core-, Webtracker- und iOS-Tests sowie einem IPA-Build geprüft. Das Artefakt heißt `AniLounge-review-IPA`; dieser Prüfworkflow erstellt keinen Release.
+
 ## Wiedergabe
 
-Ein Tipp auf eine Folge startet automatisch die pro Profil gemerkte Quelle; ohne Vorgabe werden Deutsch und VOE bevorzugt, sonst ein verfügbarer Anbieter. Über „Quelle“ änderst du Anbieter und Sprache. Die Auswahl gilt auch für folgende Episoden. Die App versucht unterstützte HTML5-Videos automatisch zu starten, ohne Buttons oder Werbelinks auf Webseiten anzuklicken. Bis der eigene Player das Video übernimmt, verdeckt ein Ladebildschirm die Anbieterseite. Dauert der Start länger als zwölf Sekunden, lässt sich der Webplayer einblenden oder die Quelle wechseln; spielt die Seite das Video schon, ohne dass der eigene Player übernehmen kann, erscheint sie nach wenigen Sekunden von selbst. Der isolierte WebKit-Tracker erkennt laufende HTML5-Videos, direkte MP4-/HLS-URLs und bei Blob-Playern einen eindeutig zuordenbaren, bereits geladenen HLS-Manifestlink. Dann versucht AVPlayer die Wiedergabe und setzt eine gemerkte Position fort. Erst wenn der native Player bereit ist, wird die Webwiedergabe angehalten. Apple-Player-Steuerelemente bieten Vollbild und Bild-in-Bild, soweit das Gerät dies unterstützt.
+Ein Tipp auf eine Folge startet automatisch die pro Profil gemerkte Quelle; ohne Vorgabe werden Deutsch und VOE bevorzugt, sonst ein verfügbarer Anbieter derselben Sprachfassung. Fehlt diese Fassung, wartet die Wiedergabe auf eine bewusste Sprachauswahl – auch beim automatischen Folgenwechsel. Über „Quelle“ änderst du Anbieter und Sprache. Die Auswahl gilt auch für folgende Episoden. Die App versucht unterstützte HTML5-Videos automatisch zu starten, ohne Buttons oder Werbelinks auf Webseiten anzuklicken. Bis der eigene Player das Video übernimmt, verdeckt ein Ladebildschirm die Anbieterseite. Dauert der Start länger als zwölf Sekunden, lässt sich der Webplayer einblenden oder die Quelle wechseln; spielt die Seite das Video schon, ohne dass der eigene Player übernehmen kann, erscheint sie nach wenigen Sekunden von selbst. Der isolierte WebKit-Tracker erkennt laufende HTML5-Videos, direkte MP4-/HLS-URLs und bei Blob-Playern einen eindeutig zuordenbaren, bereits geladenen HLS-Manifestlink. Dann versucht AVPlayer die Wiedergabe und setzt eine gemerkte Position fort. Erst wenn der native Player bereit ist, wird die Webwiedergabe angehalten. Apple-Player-Steuerelemente bieten Vollbild und Bild-in-Bild, soweit das Gerät dies unterstützt.
 
 Abgelaufene oder an Browser-Header gebundene Links, DRM, andere Formate und nicht erkannte Quellen können die native Wiedergabe verhindern. Dann bleibt der Webplayer verfügbar; über „Quelle“ lässt sich wechseln. „Webplayer verwenden“ beendet einen nativen Versuch. Es gibt keine Garantie, dass jeder Hoster funktioniert. Popup-Blocking entfernt keine in die Seite oder ins Video eingebettete Werbung. Kurze Clips unter 90 Sekunden werden vom Webtracker ignoriert, um typische Werbeclips nicht als Folgenfortschritt zu speichern; längere Werbung kann nicht zuverlässig erkannt werden.
 
-Fortschritt wird ungefähr alle fünf Sekunden, bei nativer Wiedergabe auch beim Schließen und beim Wechsel in den Hintergrund gespeichert. Unterstützte Webvideos speichern zusätzlich beim Pausieren. Bei abruptem Beenden können die letzten Sekunden fehlen. Die letzten zehn Sekunden einer Folge gelten als gesehen. Abweichende Videolängen werden beim automatischen Fortsetzen geprüft. Manuelle Korrekturen sind im Episodenmenü möglich.
+Fortschritt wird ungefähr alle fünf Sekunden, bei nativer Wiedergabe auch beim Schließen und beim Wechsel in den Hintergrund gespeichert. Unterstützte Webvideos speichern zusätzlich beim Pausieren. Bei abruptem Beenden können die letzten Sekunden fehlen. Eine Folge gilt erst beim gemeldeten Wiedergabeende oder nach manueller Markierung als gesehen. Ein Abbruch kurz vor dem Ende bleibt fortsetzbar. Abweichende Videolängen werden beim automatischen Fortsetzen geprüft. Manuelle Korrekturen sind im Episodenmenü möglich.
 
 Profile sind lokale Sammlungen, keine passwortgeschützten Onlinekonten. Sie synchronisieren sich nicht zwischen iPhone und iPad. Browser-Cookies werden von den lokalen Profilen gemeinsam genutzt.
 

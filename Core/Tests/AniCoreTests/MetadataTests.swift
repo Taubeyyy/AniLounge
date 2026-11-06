@@ -92,18 +92,12 @@ final class MetadataTests: XCTestCase {
         let broken = Data(#"{"found":true,"results":[{"interval":{"startTime":100,"endTime":101},"skipType":"op"}]}"#.utf8)
         XCTAssertNil(try MetadataParser.skipTimes(fromAniSkip: broken))
     }
-    func testNearlyFinishedEpisodesCountAsWatched() {
-        XCTAssertTrue(EpisodeProgress.finished(seconds: 1344, duration: 1420), "22:24 of 23:40 is in the credits")
-        XCTAssertFalse(EpisodeProgress.finished(seconds: 1100, duration: 1420))
-        XCTAssertFalse(EpisodeProgress.finished(seconds: 80, duration: 85), "Clips are never auto-finished")
-        XCTAssertFalse(EpisodeProgress.finished(seconds: 600, duration: nil))
-    }
     func testLibraryResetsAndWatchTime() throws {
         var profile = ProfileLibrary()
         let anime = Anime(path: "/anime/stream/a", title: "A")
         let one = Episode(path: "/anime/stream/a/staffel-1/episode-1", number: "1", title: "Eins", languages: [])
         let two = Episode(path: "/anime/stream/a/staffel-1/episode-2", number: "2", title: "Zwei", languages: [])
-        try profile.saveProgress(one, anime: anime, seconds: 1400, duration: 1440, completed: false)
+        try profile.saveProgress(one, anime: anime, seconds: 1440, duration: 1440, completed: true)
         try profile.saveProgress(two, anime: anime, seconds: 600, duration: 1440, completed: false)
         XCTAssertEqual(profile.watchedSeconds, 1440 + 600, "Finished episodes count fully")
         XCTAssertEqual(profile.finishedEpisodes, 1)

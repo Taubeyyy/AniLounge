@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    tags: ['v*']
     paths:
       - 'AniLounge/**'
       - 'Core/**'
@@ -49,9 +50,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cat > build/release-notes.md <<'NOTES'
-          Player-Einstellungen als eigenes Panel mit Schließen-Knopf (im Querformat von der Seite).
-          Doodstream: Verlangt der Anbieter eine Cloudflare-Bestätigung, wird die Seite sofort gezeigt, damit du sie bestätigen kannst.
-          NOTES
-          gh release create v0.9.6 build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge 0.9.6" --notes-file build/release-notes.md
+          version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' build/DerivedData/Build/Products/Release-iphoneos/AniLounge.app/Info.plist)
+          tag="v$version"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "$tag" ]; then
+            echo "Release tag does not match the built app version" >&2
+            exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists; preserving its published IPA."
+          else
+            gh release create "$tag" build/AniLounge.ipa --target "$GITHUB_SHA" --title "AniLounge $version" --notes-file RELEASE_NOTES.md
+          fi
 

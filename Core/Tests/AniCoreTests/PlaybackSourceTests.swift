@@ -2,15 +2,26 @@ import XCTest
 @testable import AniCore
 
 final class PlaybackSourceTests: XCTestCase {
-    func testDefaultAndRememberedSourcesPreferLanguageAndFallBackWhenUnavailable() {
+    func testDefaultAndRememberedSourcesNeverChangeEditionSilently() {
         let de = StreamHost(name: "Other", language: "Deutsch", url: URL(string: "https://aniworld.to/redirect/1")!)
         let voe = StreamHost(name: "VOE", language: "Deutsch", url: URL(string: "https://aniworld.to/redirect/2")!)
         let sub = StreamHost(name: "VOE", language: "mit Untertitel Deutsch", url: URL(string: "https://aniworld.to/redirect/3")!)
         XCTAssertEqual(PlaybackSource.preferredHost(in: [sub, de, voe], name: nil, language: nil), voe)
         XCTAssertEqual(PlaybackSource.preferredHost(in: [sub, de, voe], name: "Other", language: "Deutsch"), de)
         XCTAssertEqual(PlaybackSource.preferredHost(in: [sub, de], name: "Missing", language: "Deutsch"), de)
-        XCTAssertEqual(PlaybackSource.preferredHost(in: [sub], name: nil, language: nil), sub)
+        XCTAssertNil(PlaybackSource.preferredHost(in: [sub], name: nil, language: nil))
         XCTAssertNil(PlaybackSource.preferredHost(in: [], name: nil, language: nil))
+    }
+
+
+    func testMissingEditionRequiresConfirmationEvenWithPreferredProvider() {
+        let sub = StreamHost(name: "VOE", language: "mit Untertitel Deutsch", url: URL(string: "https://aniworld.to/redirect/sub")!)
+        XCTAssertEqual(PlaybackSource.selection(in: [sub], name: "VOE", language: "DE"), .requiresLanguageChoice(preferred: "DE"))
+        XCTAssertEqual(PlaybackSource.selection(in: [sub], name: "Other", language: "DE-Sub"), .selected(sub))
+        XCTAssertEqual(PlaybackSource.selection(in: [], name: nil, language: "DE"), .unavailable)
+        XCTAssertFalse(PlaybackLanguage.matches("Sprache 9", "DE"))
+        XCTAssertFalse(PlaybackLanguage.matches("DE", "DE-Sub"))
+        XCTAssertTrue(PlaybackLanguage.matches("DE-Sub", "Mit deutschem Untertitel"))
     }
 
     func testNativeHostSelectionPreservesLanguageAndRejectsForeignRedirects() throws {

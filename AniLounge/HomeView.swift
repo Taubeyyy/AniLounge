@@ -7,27 +7,37 @@ struct HomeView: View {
     @State private var error: String?
     @State private var loading = false
     var body: some View {
-        LoungeScroll(title: "", underBar: true, threshold: 420) {
+        LoungeScroll(title: "", underBar: false, threshold: 40) {
             LazyVStack(alignment: .leading, spacing: 30) {
+                // Personal content is available even when the online feed has never loaded.
+                ContinueWatchingShelf()
+                RecentShelf()
+                if feed == nil { AnimeShelf(title: "Meine Liste", items: library.favorites) }
                 if let feed {
                     HeroCarousel(items: Array((feed.featured.isEmpty ? feed.popular : feed.featured).prefix(6)))
-                    ContinueWatchingShelf()
                     if let error { Text(error).font(.footnote).foregroundColor(.orange).padding(.horizontal, 20) }
-                    RecentShelf()
                     AnimeShelf(title: "Beliebt auf AniWorld", items: feed.popular)
                     AnimeShelf(title: "Neue Folgen", items: Array(feed.recent.prefix(30)))
                     AnimeShelf(title: "Auf der Startseite", items: feed.featured)
                 } else if let error {
-                    ProblemView(message: error) { Task { await load() } }.padding(.top, 140)
+                    ProblemView(message: error) { Task { await load() } }.padding(.top, 20)
                 } else {
                     HomeSkeleton()
                 }
             }
         } leading: {
             LoungeLogo()
+        } trailing: {
+            NavigationLink { ProfileView() } label: { CircleIcon(systemName: library.profile.avatar) }
+                .accessibilityLabel("Profil: \(library.profile.name)")
         }
         .task { if feed == nil { await load() } }
-        .refreshable { await AniClient.shared.clearCache(); await load() }
+        .task(id: library.profile.id) { await SeriesCatalogStore.shared.refreshContinuations(library.active) }
+        .refreshable {
+            await AniClient.shared.clearCache()
+            await load()
+            await SeriesCatalogStore.shared.refreshContinuations(library.active, force: true)
+        }
     }
     private func load() async {
         guard !loading else { return }
@@ -40,6 +50,7 @@ struct HomeView: View {
 struct HeroCarousel: View {
     let items: [Anime]
     @State private var page = 0
+    @ScaledMetric(relativeTo: .title) private var heroHeight = 360
     @ObservedObject private var settings = AppSettings.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -54,9 +65,11 @@ struct HeroCarousel: View {
                     }
                 }.padding(.bottom, 2).animation(.spring(response: 0.3), value: page).accessibilityHidden(true)
             }
-            .frame(height: 540)
+            .frame(height: min(heroHeight, 520)).clipShape(RoundedRectangle(cornerRadius: 24))
+            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.stroke))
+            .padding(.horizontal, 20)
             // Gentle auto-advance like streaming apps; a manual swipe restarts the timer.
-            .task(id: page) {
+            .task(id: "\(page)|\(settings.heroAutoAdvance)|\(reduceMotion)|\(items.count)") {
                 guard !reduceMotion, settings.heroAutoAdvance, items.count > 1 else { return }
                 try? await Task.sleep(nanoseconds: 8_000_000_000)
                 guard !Task.isCancelled else { return }
@@ -75,11 +88,11 @@ struct HeroView: View {
                                    .init(color: Theme.background.opacity(0.35), location: 0.55), .init(color: Theme.background, location: 0.95)],
                            startPoint: .top, endPoint: .bottom)
             VStack(spacing: 16) {
-                Text(anime.title).font(.system(size: 30, weight: .heavy, design: .rounded)).multilineTextAlignment(.center)
-                    .lineLimit(2).minimumScaleFactor(0.75).shadow(color: .black.opacity(0.5), radius: 10)
+                Text(anime.title).font(.system(.title, design: .rounded).weight(.heavy)).multilineTextAlignment(.center)
+                    .lineLimit(3).minimumScaleFactor(0.85).shadow(color: .black.opacity(0.5), radius: 10)
                 HStack(spacing: 12) {
                     NavigationLink { DetailView(anime: anime) } label: {
-                        Label("Ansehen", systemImage: "play.fill").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 13)
+                        Label("Details", systemImage: "info.circle").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 13)
                             .background(Color.white).foregroundColor(.black).clipShape(RoundedRectangle(cornerRadius: 10))
                     }.buttonStyle(LoungePressStyle())
                     Button { library.toggleWatchlist(anime) } label: {
@@ -97,7 +110,7 @@ struct InfoView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("AniLounge 0.8") {
+                Section("AniLounge " + (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")) {
                     Text("Dein persönlicher Anime-Browser für iPhone und iPad.")
                     Text("Katalog, Suche, Watchlist und Anbieterauswahl sind nativ. Erkannte MP4-/HLS-Links laufen im iOS-Player mit Bild-in-Bild; der Webplayer bleibt als Alternative verfügbar.")
                 }
@@ -142,45 +155,46 @@ struct RecentShelf: View {
 }
 struct ContinueWatchingShelf: View {
     @EnvironmentObject private var library: LibraryStore
+    @ObservedObject private var catalogs = SeriesCatalogStore.shared
+    private var items: [EpisodeProgress] {
+        library.active.continuationCandidates.filter {
+            SeriesPlaybackState.start(anime: $0.anime, profile: library.active, catalog: catalogs.catalogs[$0.anime.id]) != .caughtUp
+        }
+    }
     var body: some View {
-        if !library.continueWatching.isEmpty {
+        if !items.isEmpty {
             VStack(alignment: .leading, spacing: 14) {
                 SectionHeader(title: "Weiterschauen", subtitle: "Für \(library.profile.name)")
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 12) {
-                        ForEach(library.continueWatching) { item in
-                            Button {
-                                library.opened(item.episode, anime: item.anime)
-                                PlaybackCenter.shared.open(PlaybackRequest(anime: item.anime, episode: item.episode, profileID: library.profile.id), library: library)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 7) {
-                                    ZStack(alignment: .bottom) {
-                                        WideArtwork(anime: item.anime)
-                                        LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .center, endPoint: .bottom)
-                                        Image(systemName: "play.fill").font(.body).frame(width: 42, height: 42)
-                                            .background(.ultraThinMaterial).clipShape(Circle()).overlay(Circle().stroke(.white.opacity(0.3)))
-                                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                                        GeometryReader { geo in
-                                            ZStack(alignment: .leading) {
-                                                Rectangle().fill(.white.opacity(0.25))
-                                                Rectangle().fill(Theme.accent).frame(width: geo.size.width * CGFloat(item.fraction ?? 0))
-                                            }
-                                        }.frame(height: 3).frame(maxHeight: .infinity, alignment: .bottom)
-                                    }.frame(width: 230, height: 129).clipShape(RoundedRectangle(cornerRadius: 10))
-                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.stroke))
-                                    Text(item.anime.title).font(.subheadline.bold()).lineLimit(1)
-                                    Text("Folge \(item.episode.number) · noch \(EpisodeProgress.format(max(0, (item.duration ?? item.seconds) - item.seconds)))")
-                                        .font(.caption.monospacedDigit()).foregroundColor(Theme.muted)
-                                }.frame(width: 230)
-                            }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
+                        ForEach(items) { item in
+                            let decision = SeriesPlaybackState.start(anime: item.anime, profile: library.active, catalog: catalogs.catalogs[item.anime.id])
+                            tile(item, decision: decision)
                                 .contextMenu {
-                                    Button { library.setWatched(true, episode: item.episode, anime: item.anime) } label: { Label("Als gesehen markieren", systemImage: "checkmark") }
-                                    Button(role: .destructive) { library.setWatched(false, episode: item.episode, anime: item.anime) } label: { Label("Aus Weiterschauen entfernen", systemImage: "xmark") }
+                                    if let episode = decision.episode {
+                                        Button { library.setWatched(true, episode: episode, anime: item.anime) } label: {
+                                            Label("Als gesehen markieren", systemImage: "checkmark")
+                                        }
+                                    }
+                                    Button { library.hideContinueWatching(item.anime) } label: {
+                                        Label("Aus Weiterschauen ausblenden", systemImage: "eye.slash")
+                                    }
                                 }
                         }
                     }.padding(.horizontal, 20)
                 }
             }
+        }
+    }
+    @ViewBuilder private func tile(_ item: EpisodeProgress, decision: SeriesPlaybackDecision) -> some View {
+        if let episode = decision.episode {
+            Button {
+                PlaybackCenter.shared.open(PlaybackRequest(anime: item.anime, episode: episode, profileID: library.profile.id), library: library)
+            } label: { ContinuationCard(item: item, decision: decision) }.buttonStyle(LoungePressStyle())
+        } else {
+            NavigationLink { DetailView(anime: item.anime) } label: {
+                ContinuationCard(item: item, decision: decision)
+            }.buttonStyle(LoungePressStyle())
         }
     }
 }

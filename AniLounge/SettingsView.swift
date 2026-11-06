@@ -28,20 +28,20 @@ import AniCore
         preferredLanguage = defaults.string(forKey: "playback.language") ?? "DE"
         preferredHoster = defaults.string(forKey: "playback.hoster") ?? "VOE"
         wifiOnlyDownloads = defaults.bool(forKey: "downloads.wifiOnly")
-        heroAutoAdvance = defaults.object(forKey: "home.heroAutoAdvance") as? Bool ?? true
+        heroAutoAdvance = defaults.object(forKey: "home.heroAutoAdvance") as? Bool ?? false
     }
     /// A new default should win over the source each profile remembered last.
     private func forgetRememberedSources() {
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("playback.preference.") { defaults.removeObject(forKey: key) }
     }
-    /// Remembered per-profile choice first, then the preferred language and hoster, then anything.
-    func host(in hosts: [StreamHost], remembered: [String: Any]?) -> StreamHost? {
-        if let remembered, let host = PlaybackSource.preferredHost(in: hosts, name: remembered["name"] as? String, language: remembered["language"] as? String) {
-            return host
-        }
-        let language = hosts.filter { LanguageLabel.short($0.language) == preferredLanguage }
-        let pool = language.isEmpty ? hosts : language
-        return pool.first { $0.name == preferredHoster } ?? pool.first
+    /// A missing edition is a user decision; only another provider in that edition is automatic.
+    func selection(in hosts: [StreamHost], remembered: [String: Any]?) -> SourceSelection {
+        PlaybackSource.selection(in: hosts, name: remembered?["name"] as? String ?? preferredHoster,
+                                 language: remembered?["language"] as? String ?? preferredLanguage)
+    }
+    func language(for profileID: UUID) -> String {
+        let remembered = defaults.dictionary(forKey: "playback.preference." + profileID.uuidString)
+        return remembered?["language"] as? String ?? preferredLanguage
     }
     nonisolated static func speedLabel(_ value: Double) -> String {
         value == 1 ? "Normal" : String(format: value == value.rounded() ? "%.0fx" : "%gx", value)

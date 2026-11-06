@@ -10,6 +10,7 @@ struct PlaybackRequest: Identifiable {
     let episode: Episode
     let profileID: UUID
     var localURL: URL? = nil
+    var localLanguage: String? = nil
 }
 @MainActor private final class WeakProgressHandler: NSObject, WKScriptMessageHandler {
     weak var target: PlayerModel?
@@ -39,12 +40,38 @@ final class PlayerSurfaceView: UIView {
 /// scrolling lists broke when they rebuilt (rotation, lazy loading) and left a stray video behind.
 /// Also keeps a Picture in Picture session alive after its screen closed and brings it back.
 @MainActor final class PlaybackCenter: ObservableObject {
-    static let shared = PlaybackCenter()
+    static let shared = PlaybackCenter(downloads: .shared)
+    struct OfflinePrompt: Identifiable {
+        let id = UUID()
+        let original: PlaybackRequest
+        let option: OfflinePlaybackOption
+        let library: LibraryStore
+    }
     @Published var presented: PlayerModel?
+    @Published var pendingOffline: OfflinePrompt?
     private(set) var current: PlayerModel?
+    private let downloads: DownloadStore
+    init(downloads: DownloadStore) { self.downloads = downloads }
     func open(_ request: PlaybackRequest, library: LibraryStore) {
-        // A quick double tap on a tile must not stack two players.
+        guard presented == nil, pendingOffline == nil else { return }
+        if request.localURL == nil,
+           let option = downloads.offlineOption(for: request, preferredLanguage: AppSettings.shared.language(for: request.profileID)) {
+            if option.requiresConfirmation {
+                pendingOffline = OfflinePrompt(original: request, option: option, library: library)
+            } else { present(option.request, library: library) }
+        } else { present(request, library: library) }
+    }
+    func confirmOffline(_ prompt: OfflinePrompt) {
+        pendingOffline = nil
+        present(prompt.option.request, library: prompt.library)
+    }
+    func chooseOnline(_ prompt: OfflinePrompt) {
+        pendingOffline = nil
+        present(prompt.original, library: prompt.library)
+    }
+    private func present(_ request: PlaybackRequest, library: LibraryStore) {
         guard presented == nil else { return }
+        library.beginPlayback(request.episode, anime: request.anime, profileID: request.profileID)
         presented = PlayerModel(request: request, store: library)
     }
     func activate(_ model: PlayerModel) {
@@ -77,6 +104,7 @@ final class PlayerSurfaceView: UIView {
     private var handledEnd = false
     @Published var nextEpisode: Episode?
     @Published var nextEpisodeError: String?
+    @Published private(set) var caughtUp = false
     @Published var countdown: Int?
     @Published var autoNext = AppSettings.shared.autoNext
     @Published var recoveryMessage: String?
@@ -117,7 +145,7 @@ final class PlayerSurfaceView: UIView {
     var isOffline: Bool { request.localURL != nil }
     func download() {
         guard nativeReady, let asset = player?.currentItem?.asset as? AVURLAsset, !isOffline else { return }
-        DownloadStore.shared.enqueue(request: request, asset: asset, cookies: downloadCookies, headers: downloadHeaders, source: selectedHost.map { "\($0.name) · \($0.language)" } ?? "Video")
+        DownloadStore.shared.enqueue(request: request, asset: asset, cookies: downloadCookies, headers: downloadHeaders, source: selectedHost.map { "\($0.name) · \($0.language)" } ?? "Video", language: selectedHost?.language)
         if DownloadStore.shared.existing(request) != nil { showToast("Download gestartet") }
     }
     private var itemObservation: NSKeyValueObservation?
@@ -142,6 +170,7 @@ final class PlayerSurfaceView: UIView {
 
     @Published var hosts: [StreamHost] = []
     @Published var choosingHost = false
+    @Published private(set) var languageNotice: String?
     @Published var loadingHosts = false
     @Published var selectedHost: StreamHost?
     @Published var player: AVPlayer?
@@ -177,9 +206,16 @@ final class PlayerSurfaceView: UIView {
             guard !closed, !Task.isCancelled else { return }
             let preference = UserDefaults.standard.dictionary(forKey: preferenceKey)
             loadNextEpisode()
-            if let host = AppSettings.shared.host(in: hosts, remembered: preference) {
+            switch AppSettings.shared.selection(in: hosts, remembered: preference) {
+            case .selected(let host):
                 select(host, remember: false)
-            } else { choosingHost = true; preparing = false }
+            case .requiresLanguageChoice(let preferred):
+                languageNotice = "Die bevorzugte Fassung \(preferred) ist für diese Folge nicht verfügbar. Wähle eine andere Fassung, um fortzufahren."
+                cancelCountdown(); choosingHost = true; preparing = false
+            case .unavailable:
+                error = "Für diese Folge ist keine Quelle verfügbar."
+                choosingHost = true; preparing = false
+            }
         }
         catch { if !Task.isCancelled { self.error = error.localizedDescription; choosingHost = true; preparing = false } }
     }
@@ -206,6 +242,7 @@ final class PlayerSurfaceView: UIView {
         if !automatic { triedHosts.removeAll(); recoveryMessage = nil }
         if let host { triedHosts.insert(host.id) }
         handledEnd = false
+        languageNotice = nil
         selectedHost = host; choosingHost = false; error = nil; preparing = true; startedAt = Date()
         DebugLog.shared.add("player", "select \(host?.name ?? "AniWorld") \(host?.language ?? "") ep \(request.episode.number) of \(request.anime.title)")
         if remember, let host { UserDefaults.standard.set(["name": host.name, "language": host.language], forKey: preferenceKey) }
@@ -262,24 +299,21 @@ final class PlayerSurfaceView: UIView {
         else { Task { await loadHosts() } }
     }
     func loadNextEpisode() {
-        nextTask?.cancel(); nextEpisode = nil; nextEpisodeError = nil
+        nextTask?.cancel(); nextEpisode = nil; nextEpisodeError = nil; caughtUp = false
         let episode = request.episode
         let anime = request.anime
+        let watched = store.snapshot.profiles.first { $0.profile.id == request.profileID }?.watched ?? []
         nextTask = Task { @MainActor [weak self] in
             do {
-                guard let separator = episode.path.lastIndex(of: "/") else { return }
-                let seasonPath = String(episode.path.prefix(upTo: separator))
+                let seasonPath = SeriesCatalog.seasonPath(for: episode)
                 let season = try await AniClient.shared.detail(path: seasonPath)
-                var next = PlaybackQueue.next(after: episode, in: season.episodes)
-                if next == nil, season.episodes.last?.id == episode.id, seasonPath.contains("/staffel-") {
-                    let detail = try await AniClient.shared.detail(path: anime.path)
-                    let seasons = detail.seasons.filter { $0.path.contains("/staffel-") }
-                    if let index = seasons.firstIndex(where: { $0.path == seasonPath }), seasons.indices.contains(index + 1) {
-                        next = try await AniClient.shared.detail(path: seasons[index + 1].path).episodes.first
-                    }
-                }
+                SeriesCatalogStore.shared.remember(season, path: seasonPath, isRoot: false)
+                let decision = try await SeriesCatalogStore.shared.resolveNext(after: episode, anime: anime, watched: watched)
+                let next = decision.episode
                 guard !Task.isCancelled, let self, !self.closed, self.request.episode.id == episode.id else { return }
                 self.nextEpisode = next
+                self.caughtUp = decision == .caughtUp
+                if decision == .unavailable { self.nextEpisodeError = "Die nächste Folge konnte nicht zugeordnet werden." }
                 self.seasonEpisodes = season.episodes
                 if self.handledEnd { self.scheduleNext() }
                 // Stills, titles and opening times are extras: failures only hide them.
@@ -307,12 +341,12 @@ final class PlayerSurfaceView: UIView {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         skipTimes = nil; autoSkippedOpening = false
         revealTask?.cancel(); webRevealTask?.cancel(); offerWebPlayer = false; webPlaybackSeen = false
-        store.opened(episode, anime: request.anime)
+        store.opened(episode, anime: request.anime, profileID: request.profileID)
         checkpoint(); stopNative(); loadTask?.cancel(); startupWatchdog?.cancel(); nextTask?.cancel(); cancelCountdown()
         token = UUID().uuidString
         webView.stopLoading(); webView.loadHTMLString("", baseURL: nil)
         request = PlaybackRequest(anime: request.anime, episode: episode, profileID: request.profileID)
-        nextEpisode = nil; nextEpisodeError = nil; hosts = []; selectedHost = nil
+        nextEpisode = nil; nextEpisodeError = nil; caughtUp = false; hosts = []; selectedHost = nil
         lastPosition = nil; lastDuration = nil; lastCompleted = false; savedLabel = nil
         handledEnd = false; choosingHost = false; preparing = true; error = nil
         Task { await loadHosts() }
@@ -393,13 +427,15 @@ final class PlayerSurfaceView: UIView {
                 self.showWebPlayer()
             }
         }
-        record(seconds: seconds, duration: duration, completed: body["ended"] as? Bool == true || EpisodeProgress.finished(seconds: seconds, duration: duration))
+        record(seconds: seconds, duration: duration, completed: body["ended"] as? Bool == true)
         if body["ended"] as? Bool == true { episodeEnded() }
     }
     private func record(seconds: Double, duration: Double, completed: Bool) {
         startupWatchdog?.cancel()
-        if handledEnd && !completed { handledEnd = false; cancelCountdown() }
-        lastPosition = min(seconds, duration); lastDuration = duration; lastCompleted = completed; playhead = min(seconds, duration)
+        // A checkpoint after the end notification must not undo completion. Seeking back does.
+        let finished = completed || (lastCompleted && seconds >= duration - 0.5)
+        if handledEnd && !finished { handledEnd = false; cancelCountdown() }
+        lastPosition = min(seconds, duration); lastDuration = duration; lastCompleted = finished; playhead = min(seconds, duration)
         persist()
         savedLabel = "\(EpisodeProgress.format(seconds)) / \(EpisodeProgress.format(duration))"
     }
@@ -511,7 +547,7 @@ final class PlayerSurfaceView: UIView {
         let seconds = player.currentTime().seconds
         let duration = player.currentItem?.duration.seconds ?? 0
         guard seconds.isFinite, seconds >= 0, duration.isFinite, duration > 0, duration <= 86400 else { return }
-        record(seconds: seconds, duration: duration, completed: ended || EpisodeProgress.finished(seconds: seconds, duration: duration))
+        record(seconds: seconds, duration: duration, completed: ended)
     }
     func checkpoint() { captureNative(); persist() }
     func togglePlay() {
@@ -713,6 +749,8 @@ struct PlaybackView: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.verticalSizeClass) private var verticalSize
     @State private var showingMore = false
+    @State private var expandedPlayer = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     init(request: PlaybackRequest, library: LibraryStore) {
         _model = StateObject(wrappedValue: PlayerModel(request: request, store: library))
     }
@@ -720,10 +758,14 @@ struct PlaybackView: View {
         _model = StateObject(wrappedValue: model)
     }
     /// iPhone landscape: the video fills the screen like a streaming app.
-    private var theater: Bool { verticalSize == .compact && !model.choosingHost }
-    private var portraitVideoHeight: CGFloat { (UIScreen.main.bounds.width * 9 / 16).rounded() }
+    private var theater: Bool { (expandedPlayer || verticalSize == .compact) && !model.choosingHost }
+    private func toggleFullscreen() {
+        if UIDevice.current.userInterfaceIdiom == .pad { expandedPlayer.toggle() }
+        else { OrientationLock.rotate(toLandscape: !theater) }
+    }
     var body: some View {
         NavigationStack {
+            GeometryReader { geometry in
             // One stable hierarchy for every orientation: the video surface and the web view are
             // never rebuilt when rotating, which used to leave a white, detached player behind.
             ZStack {
@@ -733,18 +775,18 @@ struct PlaybackView: View {
                     if !theater { topBar.transition(.opacity) }
                     stage
                         .frame(maxWidth: .infinity, maxHeight: theater ? .infinity : nil)
-                        .frame(height: theater ? nil : portraitVideoHeight)
+                        .frame(height: theater ? nil : min(max(240, geometry.size.width * 9 / 16), max(240, geometry.size.height * 0.62)))
                         .ignoresSafeArea(edges: theater ? .all : [])
                     if !theater { infoPanel.transition(.opacity) }
                 }
                 // Rotation: fade the panels and glide the video instead of jumping.
-                .animation(.easeInOut(duration: 0.3), value: theater)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.3), value: theater)
                 if model.choosingHost {
                     VStack(spacing: 0) { topBar; hostPicker }.background(Theme.background.ignoresSafeArea())
                 }
                 if showingMore { settingsPanel.zIndex(2) }
             }
-            .animation(.spring(response: 0.35, dampingFraction: 0.88), value: showingMore)
+            .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.88), value: showingMore)
             .background((theater ? Color.black : Theme.background).ignoresSafeArea())
                 .toolbar(.hidden, for: .navigationBar)
                 .statusBarHidden(theater)
@@ -756,6 +798,7 @@ struct PlaybackView: View {
                 .onChange(of: model.inPictureInPicture) { if $0 { dismiss() } }
                 .onDisappear { model.checkpoint() }
                 .background(PlaybackLifetime(model: model).frame(width: 0, height: 0))
+            }
         }.tint(Theme.accent).preferredColorScheme(.dark)
     }
     private func close() { model.finish(); dismiss() }
@@ -790,7 +833,7 @@ struct PlaybackView: View {
                     .accessibilityLabel("Player schließen")
             }
             if model.nativeReady {
-                PlayerControls(model: model, clock: model.clock, theater: theater, close: close, more: { showingMore = true })
+                PlayerControls(model: model, clock: model.clock, theater: theater, close: close, more: { showingMore = true }, toggleFullscreen: toggleFullscreen, interactionLocked: showingMore)
             }
         }.clipped()
     }
@@ -875,7 +918,8 @@ struct PlaybackView: View {
                     NoticeView(text: model.status, icon: "hand.tap", tint: Theme.accentSoft)
                 }
                 if !model.seasonEpisodes.isEmpty && !model.isOffline { episodeList }
-                else if let message = model.nextEpisodeError {
+                if model.caughtUp { Text("Keine weitere bekannte Folge").font(.caption).foregroundColor(Theme.muted) }
+                if let message = model.nextEpisodeError {
                     Button(message + " Erneut versuchen") { model.loadNextEpisode() }.font(.caption)
                 }
             }.padding(.horizontal, 20).padding(.top, 16).padding(.bottom, 30).foregroundColor(.white)
@@ -986,7 +1030,10 @@ struct PlaybackView: View {
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(episodeTitle(model.request.episode)).font(.title2.bold())
-                    Text("Deine Wahl gilt auch für die nächsten Folgen.").font(.subheadline).foregroundColor(Theme.muted)
+                    Text("Wähle die Sprache bewusst. Deine Wahl gilt auch für die nächsten Folgen.").font(.subheadline).foregroundColor(Theme.muted)
+                }
+                if let notice = model.languageNotice {
+                    NoticeView(text: notice, icon: "character.bubble.fill", tint: .orange)
                 }
                 if model.loadingHosts { ProgressView().tint(Theme.accent).frame(maxWidth: .infinity).padding(30) }
                 ForEach(Array(Set(model.hosts.map(\.language))).sorted(), id: \.self) { language in
@@ -996,7 +1043,7 @@ struct PlaybackView: View {
                             let current = model.selectedHost?.id == host.id
                             Button { model.select(host) } label: {
                                 HStack(spacing: 14) {
-                                    Text(String(host.name.prefix(1))).font(.headline.bold()).frame(width: 40, height: 40)
+                                    Text(String(host.name.prefix(1))).font(.headline.bold()).frame(width: 44, height: 44)
                                         .background(current ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.panelHigh)).clipShape(RoundedRectangle(cornerRadius: 10))
                                     Text(host.name).font(.headline)
                                     Spacer()
@@ -1018,12 +1065,16 @@ struct PlaybackView: View {
 }
 /// Streaming-app controls drawn over the video: tap to show/hide, double-tap a side to jump
 /// 10 seconds, a scrubber with buffer, rotation, Picture in Picture and settings.
-private struct PlayerControls: View {
+struct PlayerControls: View {
     @ObservedObject var model: PlayerModel
     @ObservedObject var clock: PlayheadClock
     let theater: Bool
     let close: () -> Void
     let more: () -> Void
+    let toggleFullscreen: () -> Void
+    let interactionLocked: Bool
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var visible = true
     @State private var hideTask: Task<Void, Never>?
     @State private var scrub: Double?
@@ -1050,15 +1101,19 @@ private struct PlayerControls: View {
             }
         }
         .foregroundColor(.white)
-        .animation(.easeInOut(duration: 0.2), value: visible)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: visible)
         .animation(.easeInOut(duration: 0.2), value: model.toast)
         .onAppear { scheduleHide() }
+        .onDisappear { hideTask?.cancel() }
+        .onChange(of: voiceOverEnabled) { _ in visible = true; scheduleHide() }
+        .onChange(of: interactionLocked) { _ in visible = true; scheduleHide() }
+        .onChange(of: model.request.episode.id) { _ in visible = true; scheduleHide() }
         .onChange(of: model.isPlaying) { playing in
             if playing { scheduleHide() } else { hideTask?.cancel(); withAnimation { visible = true } }
         }
     }
     private func tapZone(forward: Bool) -> some View {
-        Color.clear.contentShape(Rectangle())
+        Color.clear.contentShape(Rectangle()).accessibilityHidden(true)
             .onTapGesture(count: 2) {
                 model.skip(forward ? 10 : -10)
                 let id = UUID(); flashID = id
@@ -1069,14 +1124,16 @@ private struct PlayerControls: View {
                 }
             }
             .onTapGesture {
+                guard !voiceOverEnabled, !interactionLocked else { return }
                 if visible { hideTask?.cancel(); withAnimation { visible = false } } else { withAnimation { visible = true }; scheduleHide() }
             }
     }
     private func scheduleHide() {
         hideTask?.cancel()
+        guard !voiceOverEnabled, !interactionLocked else { visible = true; return }
         hideTask = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 3_500_000_000)
-            guard !Task.isCancelled, model.isPlaying, scrub == nil else { return }
+            guard !Task.isCancelled, model.isPlaying, scrub == nil, !voiceOverEnabled, !interactionLocked else { return }
             withAnimation { visible = false }
         }
     }
@@ -1091,7 +1148,7 @@ private struct PlayerControls: View {
             VStack(spacing: 0) {
                 HStack(spacing: 14) {
                     if theater {
-                        Button(action: close) { Image(systemName: "chevron.down").font(.title3.weight(.bold)).frame(width: 40, height: 40) }
+                        Button(action: close) { Image(systemName: "chevron.down").font(.title3.weight(.bold)).frame(width: 44, height: 44) }
                             .accessibilityLabel("Player schließen")
                         VStack(alignment: .leading, spacing: 2) {
                             Text(model.request.anime.title).font(.headline).lineLimit(1)
@@ -1100,27 +1157,27 @@ private struct PlayerControls: View {
                     }
                     Spacer(minLength: 0)
                     if model.pipPossible {
-                        Button { model.togglePictureInPicture() } label: { Image(systemName: "pip.enter").font(theater ? .title3.weight(.semibold) : .body.weight(.semibold)).frame(width: 38, height: 38) }
+                        Button { model.togglePictureInPicture() } label: { Image(systemName: "pip.enter").font(theater ? .title3.weight(.semibold) : .body.weight(.semibold)).frame(width: 44, height: 44) }
                             .accessibilityLabel("Bild in Bild")
                     }
-                    Button(action: more) { Image(systemName: "gearshape.fill").font(theater ? .title3.weight(.semibold) : .body.weight(.semibold)).frame(width: 38, height: 38) }
+                    Button(action: more) { Image(systemName: "gearshape.fill").font(theater ? .title3.weight(.semibold) : .body.weight(.semibold)).frame(width: 44, height: 44) }
                         .accessibilityLabel("Wiedergabe-Einstellungen")
                 }
                 Spacer(minLength: 0)
                 bottomBar
             }.padding(.horizontal, theater ? 56 : 10).padding(.top, theater ? 16 : 2).padding(.bottom, theater ? 18 : 2)
             HStack(spacing: theater ? 72 : 44) {
-                Button { act { model.skip(-10) } } label: { Image(systemName: "gobackward.10").font(.system(size: theater ? 34 : 24, weight: .semibold)) }
+                Button { act { model.skip(-10) } } label: { Image(systemName: "gobackward.10").font(.system(size: theater ? 34 : 24, weight: .semibold)).frame(width: 48, height: 48).contentShape(Rectangle()) }
                     .accessibilityLabel("10 Sekunden zurück")
                 ZStack {
                     if model.isBuffering { ProgressView().controlSize(.large).tint(.white) }
                     else {
                         Button { act { model.togglePlay() } } label: {
-                            Image(systemName: model.isPlaying ? "pause.fill" : "play.fill").font(.system(size: theater ? 48 : 34, weight: .bold))
+                            Image(systemName: model.isPlaying ? "pause.fill" : "play.fill").font(.system(size: theater ? 48 : 34, weight: .bold)).frame(width: 60, height: 60).contentShape(Rectangle())
                         }.accessibilityLabel(model.isPlaying ? "Pause" : "Abspielen")
                     }
                 }.frame(width: 60, height: 60)
-                Button { act { model.skip(10) } } label: { Image(systemName: "goforward.10").font(.system(size: theater ? 34 : 24, weight: .semibold)) }
+                Button { act { model.skip(10) } } label: { Image(systemName: "goforward.10").font(.system(size: theater ? 34 : 24, weight: .semibold)).frame(width: 48, height: 48).contentShape(Rectangle()) }
                     .accessibilityLabel("10 Sekunden vor")
             }.shadow(color: .black.opacity(0.4), radius: 8)
         }.buttonStyle(LoungePressStyle())
@@ -1142,10 +1199,10 @@ private struct PlayerControls: View {
                         Image(systemName: model.fillScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right").font(.body.weight(.semibold))
                     }.accessibilityLabel(model.fillScreen ? "Ganzes Bild zeigen" : "Bildschirm füllen")
                 }
-                Button { OrientationLock.rotate(toLandscape: !theater); scheduleHide() } label: {
+                Button { toggleFullscreen(); scheduleHide() } label: {
                     Image(systemName: theater ? "arrow.down.right.and.arrow.up.left.rectangle" : "arrow.up.left.and.arrow.down.right.rectangle")
-                        .font(.body.weight(.semibold)).frame(width: 34, height: 30)
-                }.accessibilityLabel(theater ? "Hochformat" : "Vollbild")
+                        .font(.body.weight(.semibold)).frame(width: 44, height: 44)
+                }.accessibilityLabel(theater ? "Vollbild verlassen" : "Vollbild")
             }
         }
     }
@@ -1171,7 +1228,7 @@ private struct Scrubber: View {
                 Circle().fill(Theme.accent).frame(width: knob, height: knob).shadow(radius: 3)
                     .offset(x: width * played - knob / 2)
             }
-            .frame(height: 24).contentShape(Rectangle())
+            .frame(height: 44).contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { gesture in
                     if !dragging { dragging = true; UISelectionFeedbackGenerator().selectionChanged() }
@@ -1183,10 +1240,11 @@ private struct Scrubber: View {
                 })
             .animation(.easeOut(duration: 0.15), value: dragging)
         }
-        .frame(height: 24)
+        .frame(height: 44)
+        .allowsHitTesting(duration > 0)
         .accessibilityElement()
         .accessibilityLabel("Wiedergabeposition")
-        .accessibilityValue(EpisodeProgress.format(value))
+        .accessibilityValue("\(EpisodeProgress.format(value)) von \(EpisodeProgress.format(duration))")
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment: ended(min(duration, value + 10))
