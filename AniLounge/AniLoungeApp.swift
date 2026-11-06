@@ -21,11 +21,14 @@ struct RootView: View {
     @ObservedObject private var catalogs = SeriesCatalogStore.shared
     @State private var selected = 0
     @State private var showingCalendar = false
+    @State private var showingProfileSummary = false
+    @State private var openProfileAfterDismiss = false
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var launching = true
     private let tabs = [("Start", "house.fill"), ("Suche", "magnifyingglass"), ("Watchlist", "bookmark.fill"), ("Downloads", "arrow.down.circle.fill"), ("Profil", "person.crop.circle.fill")]
     var body: some View {
         TabView(selection: $selected) {
-            NavigationStack { HomeView() }.tag(0)
+            NavigationStack { HomeView(onOpenProfileSummary: { showingProfileSummary = true }) }.tag(0)
             NavigationStack { SearchView() }.tag(1)
             NavigationStack { SavedView() }.tag(2)
             NavigationStack { DownloadsView() }.tag(3)
@@ -49,6 +52,19 @@ struct RootView: View {
             }
         .onReceive(quickActions.$pending.compactMap { $0 }) { handle($0) }
         .sheet(isPresented: $showingCalendar) { NavigationStack { CalendarView() }.preferredColorScheme(.dark) }
+        .sheet(isPresented: $showingProfileSummary, onDismiss: {
+            // Finish dismissing before changing tabs, so Start keeps its navigation state.
+            if openProfileAfterDismiss { selected = 4 }
+            openProfileAfterDismiss = false
+        }) {
+            ProfileSummaryView {
+                openProfileAfterDismiss = true
+                showingProfileSummary = false
+            }
+            .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.height(440), .large])
+            .presentationDragIndicator(.visible)
+            .preferredColorScheme(.dark)
+        }
         .alert("Speichern nicht möglich", isPresented: Binding(get: { library.storageError != nil }, set: { if !$0 { library.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(library.storageError ?? "") }
     }
 }
@@ -198,15 +214,14 @@ struct Artwork: View {
             ZStack {
                 LinearGradient(colors: [Theme.accent.opacity(0.25), Theme.panel], startPoint: .topLeading, endPoint: .bottomTrailing)
                 // Pictures already in memory draw on the first frame, without a placeholder flash.
-                if let image = url.flatMap({ ArtworkCache.shared.memoryImage($0, filling: pixels(geo.size)) }) ?? loader.image {
-                    Image(uiImage: image).resizable().scaledToFill().transition(.opacity)
+                if let image = url.flatMap({ ArtworkCache.shared.memoryImage($0) }) ?? loader.image(for: url) {
+                    Image(uiImage: image).resizable().scaledToFill()
                 } else if url == nil {
                     Image(systemName: "photo").font(.title3).foregroundColor(.white.opacity(0.18))
                 } else {
                     Color.clear.shimmer()
                 }
             }.frame(width: geo.size.width, height: geo.size.height).clipped()
-                .animation(.easeOut(duration: 0.3), value: loader.image != nil)
             .task(id: url) { await loader.load(url, filling: pixels(geo.size)) }
         }.accessibilityHidden(true)
     }

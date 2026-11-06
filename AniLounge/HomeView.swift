@@ -2,6 +2,7 @@ import SwiftUI
 import AniCore
 
 struct HomeView: View {
+    let onOpenProfileSummary: () -> Void
     @EnvironmentObject private var library: LibraryStore
     @State private var feed: HomeFeed?
     @State private var error: String?
@@ -35,8 +36,9 @@ struct HomeView: View {
         } trailing: {
             HStack(spacing: 10) {
                 NavigationLink { CalendarView() } label: { CircleIcon(systemName: "calendar") }.accessibilityLabel("Simulcast-Kalender")
-                NavigationLink { ProfileView() } label: { CircleIcon(systemName: library.profile.avatar) }
-                    .accessibilityLabel("Profil: \(library.profile.name)")
+                Button(action: onOpenProfileSummary) { CircleIcon(systemName: library.profile.avatar) }
+                    .accessibilityLabel("Profilübersicht: \(library.profile.name)")
+                    .accessibilityHint("Zeigt deine Statistiken in einem kleinen Fenster")
             }
         }
         .task { if feed == nil { await load() } }

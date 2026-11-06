@@ -9,11 +9,20 @@ import AniCore
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let library = LibraryStore(defaults: defaults)
+        await capture("Profiluebersicht-leer-iPhone-320", size: CGSize(width: 320, height: 440),
+                      view: ProfileSummaryView(openProfile: {}).environmentObject(library))
         let anime = Anime(path: "preview://series", title: "Eine Reise unter dem Sternenhimmel")
         library.toggle(anime)
         let episode = try JSONDecoder().decode(Episode.self, from: Data("""
         {"path":"preview://series/episode-1","number":"1","title":"Ein unerwarteter Aufbruch in eine neue Welt","languages":["Deutsch","Mit deutschem Untertitel"]}
         """.utf8))
+        library.setStatus(.completed, for: anime)
+        library.saveProgress(episode, anime: anime, seconds: 1440, duration: 1440,
+                             completed: true, profileID: library.profile.id)
+        await capture("Profiluebersicht-iPhone", size: CGSize(width: 393, height: 440),
+                      view: ProfileSummaryView(openProfile: {}).environmentObject(library))
+        await capture("Profiluebersicht-grosse-Schrift", size: CGSize(width: 393, height: 852),
+                      view: ProfileSummaryView(openProfile: {}).environmentObject(library).dynamicTypeSize(.accessibility2))
         await capture("Watchlist-iPhone-320", size: CGSize(width: 320, height: 640),
                       view: NavigationStack { SavedView() }.environmentObject(library))
         await capture("Watchlist-grosse-Schrift", size: CGSize(width: 393, height: 852),
