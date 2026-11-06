@@ -56,7 +56,7 @@ Persönlicher, inoffizieller AniWorld-Client mit einer dunklen, von Streaming-Ap
 
 **Buildstatus:** Die Ergebnisse für den jeweiligen Commit stehen in [GitHub Actions](https://github.com/Taubeyyy/AniLounge/actions). Der Release-Workflow veröffentlicht die IPA erst nach erfolgreichen Core-, Webtracker- und iOS-Tests sowie Paketprüfung. `VALIDATION.json` dokumentiert einen älteren Prüfstand mit eigener Versionsangabe. Installation und Anbieter-Wiedergabe auf einem echten Gerät sind noch nicht geprüft.
 
-[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/download/v0.9.8/AniLounge.ipa) · [Release 0.9.8](https://github.com/Taubeyyy/AniLounge/releases/tag/v0.9.8)
+[Aktuelle IPA direkt herunterladen](https://github.com/Taubeyyy/AniLounge/releases/latest/download/AniLounge.ipa) · [Aktueller Release](https://github.com/Taubeyyy/AniLounge/releases/latest)
 
 [Builds und IPA-Artefakte](https://github.com/Taubeyyy/AniLounge/actions)
 
