@@ -21,6 +21,7 @@ struct RootView: View {
     @ObservedObject private var catalogs = SeriesCatalogStore.shared
     @State private var selected = 0
     @State private var showingCalendar = false
+    @State private var launching = true
     private let tabs = [("Start", "house.fill"), ("Suche", "magnifyingglass"), ("Watchlist", "bookmark.fill"), ("Downloads", "arrow.down.circle.fill"), ("Profil", "person.crop.circle.fill")]
     var body: some View {
         TabView(selection: $selected) {
@@ -34,6 +35,7 @@ struct RootView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { LoungeTabBar(tabs: tabs, selected: $selected) }
         .id(library.profile.id)
         .overlay(alignment: .top) { ToastHost() }
+        .overlay { if launching { LaunchOverlay { launching = false }.transition(.opacity).zIndex(10) } }
         // Every episode opens here, and so does a restored Picture in Picture window.
         .fullScreenCover(item: $playback.presented) { PlaybackView(model: $0) }
         .confirmationDialog("Gespeicherte Sprachfassung", isPresented: Binding(
@@ -120,6 +122,14 @@ extension View {
             .overlay(RoundedRectangle(cornerRadius: 22).stroke(Theme.stroke))
     }
     func shimmer(_ active: Bool = true) -> some View { modifier(Shimmer(active: active)) }
+    /// A light glass surface: blurred background, faint tint and a thin highlight edge.
+    func glassCard(cornerRadius: CGFloat = 16) -> some View {
+        self.background(.ultraThinMaterial)
+            .background(Theme.panel.opacity(0.45))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(LinearGradient(colors: [.white.opacity(0.18), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+    }
 }
 struct Shimmer: ViewModifier {
     let active: Bool

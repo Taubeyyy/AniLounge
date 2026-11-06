@@ -846,7 +846,12 @@ struct PlaybackView: View {
                 .onDisappear { model.checkpoint() }
                 .background(PlaybackLifetime(model: model).frame(width: 0, height: 0))
             }
-        }.tint(Theme.accent).preferredColorScheme(.dark)
+        }
+        // On the cover's root so UIKit reads it: the home indicator fades out while watching and
+        // the first swipe from the bottom edge only brings it back instead of leaving the player.
+        .persistentSystemOverlays(.hidden)
+        .defersSystemGestures(on: .bottom)
+        .tint(Theme.accent).preferredColorScheme(.dark)
     }
     private func close() { model.finish(); dismiss() }
 
@@ -1046,7 +1051,8 @@ struct PlaybackView: View {
                 ScrollView { moreSheet.padding(.bottom, 20) }
             }
             .frame(maxWidth: theater ? 380 : .infinity, maxHeight: theater ? .infinity : 480)
-            .background(Theme.background.opacity(0.97))
+            .background(.ultraThinMaterial)
+            .background(Theme.background.opacity(0.55))
             .clipShape(RoundedRectangle(cornerRadius: theater ? 0 : 24))
             .overlay(RoundedRectangle(cornerRadius: theater ? 0 : 24).stroke(Theme.stroke))
             .ignoresSafeArea(edges: theater ? [.vertical, .trailing] : .bottom)
@@ -1142,6 +1148,7 @@ struct PlayerControls: View {
     @State private var hud: (icon: String, value: Double)?
     @State private var dragBase: Double?
     @State private var hudID = UUID()
+    @State private var seekTotal = 0
     var body: some View {
         ZStack {
             VolumeHost().frame(width: 1, height: 1).opacity(0.01).allowsHitTesting(false)
@@ -1157,7 +1164,12 @@ struct PlayerControls: View {
                 if let from = model.resumedFrom { resumePill(from) }
             }
             if !visible && model.isBuffering { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
-            if let hud { hudView(hud) }
+            if let hud {
+                // The level bar sits at the edge of the side being swiped.
+                hudView(hud)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: hud.icon.hasPrefix("sun") ? .trailing : .leading)
+                    .padding(.horizontal, theater ? 64 : 18)
+            }
             if let flash {
                 Text(flash.text).font(.headline.bold()).padding(.horizontal, 16).padding(.vertical, 10)
                     .background(.ultraThinMaterial).clipShape(Capsule())
@@ -1187,20 +1199,24 @@ struct PlayerControls: View {
         Color.clear.contentShape(Rectangle()).accessibilityHidden(true)
             .onTapGesture(count: 2) {
                 model.skip(forward ? 10 : -10)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                // Repeated double taps add up, like YouTube and Crunchyroll: +10, +20, +30 …
+                let sameSide = flash.map { $0.forward == forward } ?? false
+                seekTotal = (sameSide ? seekTotal : 0) + 10
                 let id = UUID(); flashID = id
-                withAnimation(.easeOut(duration: 0.15)) { flash = (forward ? "+10 s" : "−10 s", forward) }
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) { flash = (forward ? "+\(seekTotal) s" : "−\(seekTotal) s", forward) }
                 Task { @MainActor in
-                    try? await Task.sleep(nanoseconds: 650_000_000)
-                    if flashID == id { withAnimation { flash = nil } }
+                    try? await Task.sleep(nanoseconds: 900_000_000)
+                    if flashID == id { withAnimation { flash = nil }; seekTotal = 0 }
                 }
             }
             .onTapGesture {
                 guard !voiceOverEnabled, !interactionLocked else { return }
                 if visible { hideTask?.cancel(); withAnimation { visible = false } } else { withAnimation { visible = true }; scheduleHide() }
             }
-            // Vertical swipe: brightness on the left, volume on the right (Netflix, Crunchyroll).
+            // Vertical swipe: volume on the left, brightness on the right.
             .simultaneousGesture(DragGesture(minimumDistance: 16)
-                .onChanged { adjust($0, volume: forward) }
+                .onChanged { adjust($0, volume: !forward) }
                 .onEnded { _ in endAdjust() })
     }
     private func adjust(_ value: DragGesture.Value, volume: Bool) {
@@ -1277,6 +1293,14 @@ struct PlayerControls: View {
             withAnimation { visible = false }
         }
     }
+    private var skipSegments: [ScrubberSegment] {
+        guard let times = model.skipTimes, times.fits(duration: model.player?.currentItem?.duration.seconds) else { return [] }
+        var list: [ScrubberSegment] = []
+        if let recap = times.recap { list.append(ScrubberSegment(range: recap, color: .teal)) }
+        if let opening = times.opening { list.append(ScrubberSegment(range: opening, color: .yellow)) }
+        if let ending = times.ending { list.append(ScrubberSegment(range: ending, color: .orange)) }
+        return list
+    }
     /// Runs a control action and keeps the controls on screen a little longer.
     private func act(_ action: () -> Void) { action(); scheduleHide() }
 
@@ -1340,7 +1364,7 @@ struct PlayerControls: View {
                 .foregroundColor(.white.opacity(0.85)).fixedSize()
             Scrubber(value: scrub ?? clock.seconds, duration: clock.duration, buffered: clock.buffered,
                      changed: { scrub = $0; hideTask?.cancel() },
-                     ended: { model.seek(to: $0); scrub = nil; scheduleHide() })
+                     ended: { model.seek(to: $0); scrub = nil; scheduleHide() }, segments: skipSegments)
             Text(EpisodeProgress.format(clock.duration)).font(.caption2.weight(.semibold).monospacedDigit())
                 .foregroundColor(.white.opacity(0.6)).fixedSize()
             Button { toggleFullscreen(); scheduleHide() } label: {
@@ -1352,13 +1376,17 @@ struct PlayerControls: View {
         VStack(spacing: theater ? 8 : 2) {
             Scrubber(value: scrub ?? clock.seconds, duration: clock.duration, buffered: clock.buffered,
                      changed: { scrub = $0; hideTask?.cancel() },
-                     ended: { model.seek(to: $0); scrub = nil; scheduleHide() })
+                     ended: { model.seek(to: $0); scrub = nil; scheduleHide() }, segments: skipSegments)
             HStack(spacing: 14) {
                 Text("\(EpisodeProgress.format(scrub ?? clock.seconds)) / \(EpisodeProgress.format(clock.duration))")
                     .font(.caption.weight(.semibold).monospacedDigit()).foregroundColor(.white.opacity(0.85))
                 Spacer(minLength: 0)
                 if theater, let next = model.nextEpisode {
-                    Button { model.playNext() } label: { Label("Folge \(next.number)", systemImage: "forward.end.fill").font(.footnote.bold()) }
+                    Button { act { model.playNext() } } label: {
+                        Label("Folge \(next.number)", systemImage: "forward.end.fill").font(.footnote.bold())
+                            .padding(.horizontal, 14).frame(minHeight: 40).background(.ultraThinMaterial).clipShape(Capsule())
+                            .contentShape(Capsule())
+                    }.accessibilityLabel("Nächste Folge, Folge \(next.number)")
                 }
                 if theater {
                     Button { act { model.fillScreen.toggle() } } label: {
@@ -1379,6 +1407,8 @@ private struct Scrubber: View {
     let buffered: Double
     let changed: (Double) -> Void
     let ended: (Double) -> Void
+    /// Recap, opening and ending, drawn in colour on the track (AniSkip).
+    var segments: [ScrubberSegment] = []
     @State private var dragging = false
     var body: some View {
         GeometryReader { geo in
@@ -1390,6 +1420,11 @@ private struct Scrubber: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.22)).frame(height: bar)
                 Capsule().fill(.white.opacity(0.4)).frame(width: width * loaded, height: bar)
+                ForEach(segments) { segment in
+                    Capsule().fill(segment.color.opacity(0.85))
+                        .frame(width: max(3, width * CGFloat((segment.range.upperBound - segment.range.lowerBound) / max(duration, 1))), height: bar)
+                        .offset(x: width * CGFloat(segment.range.lowerBound / max(duration, 1)))
+                }
                 Capsule().fill(Theme.accent).frame(width: width * played, height: bar)
                 Circle().fill(Theme.accent).frame(width: knob, height: knob).shadow(radius: 3)
                     .offset(x: width * played - knob / 2)
@@ -1442,7 +1477,11 @@ private struct SkipOverlay: View {
             Spacer()
             switch kind {
             case .none:
-                EmptyView()
+                // Without AniSkip data, offer the classic 85-second intro jump early in the episode.
+                if model.skipTimes?.opening == nil, clock.seconds > 5, clock.seconds < 240, model.countdown == nil {
+                    Button { model.skip(85) } label: { Label("Intro +85 s", systemImage: "forward.fill") }
+                        .buttonStyle(OverlayButtonStyle())
+                }
             case .recap(let end):
                 Button { model.seek(to: end) } label: { Label("Rückblick überspringen", systemImage: "forward.fill") }
                     .buttonStyle(OverlayButtonStyle())
@@ -1608,4 +1647,10 @@ private struct VolumeHost: UIViewRepresentable {
         return container
     }
     func updateUIView(_ view: UIView, context: Context) {}
+}
+
+struct ScrubberSegment: Identifiable {
+    var id: Double { range.lowerBound }
+    let range: ClosedRange<Double>
+    let color: Color
 }

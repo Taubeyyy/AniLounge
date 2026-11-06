@@ -123,8 +123,16 @@ struct WideArtwork: View {
     var body: some View {
         ZStack {
             if let backdrop { Artwork(url: backdrop) }
-            else if resolved { AnimeArtwork(anime: anime) }
-            else { Theme.panel }
+            else if resolved {
+                // No wide picture: a soft blurred backdrop with the sharp poster on top, instead of
+                // stretching a small portrait poster until it turns into pixels.
+                ZStack {
+                    AnimeArtwork(anime: anime).blur(radius: 24).opacity(0.55)
+                    AnimeArtwork(anime: anime).aspectRatio(2 / 3, contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: 6)).shadow(color: .black.opacity(0.4), radius: 10).padding(.vertical, 10)
+                }.clipped()
+            }
+            else { Theme.panel.shimmer() }
         }.task(id: anime.id) {
             backdrop = await AniClient.shared.backdrop(for: anime); resolved = true
         }
@@ -227,5 +235,40 @@ struct ToastHost: View {
                     .id(toast.id).accessibilityAddTraits(.isStaticText)
             }
         }.allowsHitTesting(false)
+    }
+}
+
+/// Opening animation in the style of the app icon: the play mark settles, the progress bar
+/// fills, the name appears, then everything fades into the app. Short, and skipped with
+/// "Bewegung reduzieren".
+struct LaunchOverlay: View {
+    let done: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var mark = false
+    @State private var progress: CGFloat = 0
+    @State private var name = false
+    var body: some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0.36, green: 0.18, blue: 0.67), Color(red: 0.06, green: 0.035, blue: 0.12)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing).ignoresSafeArea()
+            VStack(spacing: 26) {
+                Image(systemName: "play.fill").font(.system(size: 64, weight: .bold)).foregroundColor(.white)
+                    .scaleEffect(mark ? 1 : 0.6).opacity(mark ? 1 : 0)
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color(red: 0.27, green: 0.17, blue: 0.47)).frame(width: 120, height: 8)
+                    Capsule().fill(Color(red: 0.78, green: 0.65, blue: 1)).frame(width: 120 * progress, height: 8)
+                }
+                LoungeLogo().opacity(name ? 1 : 0).offset(y: name ? 0 : 8)
+            }
+        }
+        .accessibilityHidden(true)
+        .task {
+            guard !reduceMotion else { done(); return }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.7)) { mark = true }
+            withAnimation(.easeInOut(duration: 0.7).delay(0.15)) { progress = 1 }
+            withAnimation(.easeOut(duration: 0.35).delay(0.35)) { name = true }
+            try? await Task.sleep(nanoseconds: 1_050_000_000)
+            withAnimation(.easeInOut(duration: 0.35)) { done() }
+        }
     }
 }

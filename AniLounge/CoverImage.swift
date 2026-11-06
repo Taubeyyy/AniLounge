@@ -19,8 +19,9 @@ struct AnimeArtwork: View {
 /// off the main thread, and parallel requests for the same picture share one download.
 final class ArtworkCache: @unchecked Sendable {
     static let shared = ArtworkCache()
-    /// Largest edge kept in memory; plenty for full-width heroes on a 3x screen.
-    private static let maxPixel: CGFloat = 1200
+    /// Largest edge kept in memory. Heroes crop a tall slice out of wide art, so wide pictures
+    /// need their full resolution; smaller sources are never scaled up.
+    private static let maxPixel: CGFloat = 2400
     private static let diskLimit: Int64 = 300 * 1024 * 1024
     private let memory = NSCache<NSURL, UIImage>()
     private let directory: URL

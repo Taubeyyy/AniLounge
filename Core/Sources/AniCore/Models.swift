@@ -37,6 +37,7 @@ public struct Genre: Identifiable, Sendable {
     public var id: String { name }
     public let name: String
     public let anime: [Anime]
+    public init(name: String, anime: [Anime]) { self.name = name; self.anime = anime }
 }
 public struct HomeFeed: Sendable {
     public let featured: [Anime]

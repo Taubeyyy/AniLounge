@@ -39,7 +39,7 @@ public struct SkipTimes: Sendable, Equatable {
     /// Times are only trusted when the playing video has about the same length.
     public func fits(duration: Double?) -> Bool {
         guard let duration, duration.isFinite, duration > 0, let episodeLength, episodeLength > 0 else { return true }
-        return abs(duration - episodeLength) <= 45
+        return abs(duration - episodeLength) <= 90
     }
 }
 /// One upcoming or recent broadcast from AniList's airing schedule.

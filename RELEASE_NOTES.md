@@ -1,15 +1,22 @@
-# AniLounge 0.9.10 · Build 21
+# AniLounge 1.0.0 · Build 22
 
-Flüssiger und ruhiger:
+**Player**
+- Die iOS-Leiste unten blendet sich beim Schauen aus; ein Wisch vom unteren Rand holt sie erst zurück, statt den Player zu verlassen.
+- Lautstärke links, Helligkeit rechts wischen; die Anzeige sitzt jetzt am jeweiligen Rand.
+- Doppeltippen summiert: +10, +20, +30 Sekunden.
+- „Folge X“ im Vollbild ist größer und reagiert zuverlässiger.
+- „Intro +85 s“ erscheint am Anfang, wenn keine Opening-Zeiten bekannt sind; automatisches Überspringen greift jetzt auch bei Synchronfassungen mit leicht anderer Länge.
+- Die Zeitleiste zeigt Rückblick (türkis), Opening (gelb) und Abspann (orange) farbig.
+- Glas-Look für die Wiedergabe-Einstellungen.
 
-- Cover und Hintergrundbilder werden dauerhaft gespeichert (bis 300 MB, älteste zuerst gelöscht). Nach einem Neustart erscheinen sie sofort statt neu zu laden.
-- Bilder werden im Hintergrund verkleinert und entpackt; Scrollen durch Reihen ruckelt nicht mehr beim Erscheinen neuer Cover.
-- Gleichzeitige Anfragen für dasselbe Bild teilen sich einen Download; Poster einer Reihe werden vorab geladen, bevor man hinwischt.
-- Die App merkt sich gefundene Cover- und Hintergrund-Links über Neustarts hinweg und lädt dafür keine Serienseiten mehr.
-- Beim Laden zeigen Bilder einen ruhigen Schimmer statt eines Funkel-Symbols.
-- Leichtere Darstellung: keine Schatten unter jedem Poster und kein zusätzlicher Weichzeichner hinter dem Hero.
-- Einstellungen zeigen, wie viel Platz gespeicherte Bilder belegen; „Bild-Cache leeren“ löscht sie wirklich.
+**Bilder**
+- Cover und Hintergrundbilder werden dauerhaft gespeichert und im Hintergrund vorbereitet; Scrollen ist flüssiger.
+- Vorschaubilder werden in voller Auflösung genutzt und nicht mehr verpixelt hochgezogen; ohne breites Bild erscheint das Poster scharf vor einem weichen Hintergrund.
 
-Alle Funktionen aus 0.9.9 bleiben enthalten.
+**Oberfläche**
+- Suche aufgeräumt: „Überrasch mich“ (mit „Noch mal“) und „Alle A–Z“ statt einer Wand aus 2000 Postern; „Überrasch mich“ friert nicht mehr ein.
+- Profil neu: Kopfbereich mit deinem zuletzt gesehenen Anime, kompakte Statistik, „Wer schaut?“.
+- Einstellungen mit leichtem Glas-Look und schlichten Symbolen.
+- Neues App-Icon und eine kurze Startanimation.
 
 Installation: AniLounge.ipa mit TrollStore als Update über die vorhandene App installieren. Profile und Downloads bleiben erhalten.

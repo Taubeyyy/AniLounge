@@ -124,8 +124,8 @@ struct SettingsView: View {
                     if let backupURL {
                         ShareLink(item: backupURL) {
                             HStack(spacing: 12) {
-                                Image(systemName: "square.and.arrow.up").font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
-                                    .frame(width: 30, height: 30).background(Theme.accent.gradient).clipShape(RoundedRectangle(cornerRadius: 8))
+                                Image(systemName: "square.and.arrow.up").font(.system(size: 16, weight: .medium)).foregroundColor(Theme.accentSoft)
+                                    .frame(width: 28, height: 28)
                                 Text("Sicherung teilen oder speichern").font(.subheadline.weight(.semibold))
                                 Spacer()
                             }.padding(.horizontal, 14).padding(.vertical, 11).contentShape(Rectangle())
@@ -140,8 +140,8 @@ struct SettingsView: View {
                 SettingsSection(title: "Hilfe") {
                     NavigationLink { DebugLogView() } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: "ladybug.fill").font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
-                                .frame(width: 30, height: 30).background(Theme.panelHigh).clipShape(RoundedRectangle(cornerRadius: 8))
+                            Image(systemName: "ladybug").font(.system(size: 16, weight: .medium)).foregroundColor(Theme.accentSoft)
+                                .frame(width: 28, height: 28)
                             Text("Diagnose-Protokoll").font(.subheadline.weight(.semibold))
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption.bold()).foregroundColor(Theme.muted)
@@ -216,8 +216,7 @@ struct SettingsSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title.uppercased()).font(.caption.bold()).tracking(1.2).foregroundColor(Theme.muted).padding(.leading, 4)
             VStack(alignment: .leading, spacing: 0) { content }
-                .background(Theme.panel).clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.stroke))
+                .glassCard()
         }
     }
 }
@@ -225,8 +224,10 @@ private struct SettingsIcon: View {
     let name: String
     var tint: Color = Theme.accent
     var body: some View {
-        Image(systemName: name).font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
-            .frame(width: 30, height: 30).background(tint.gradient).clipShape(RoundedRectangle(cornerRadius: 8))
+        // Plain, consistent symbols; colour only marks destructive rows.
+        Image(systemName: name).font(.system(size: 16, weight: .medium))
+            .foregroundColor(tint == Theme.accent || tint == Theme.panelHigh ? Theme.accentSoft : tint)
+            .frame(width: 28, height: 28)
     }
 }
 struct SettingsToggle: View {
