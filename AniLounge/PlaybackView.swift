@@ -1312,25 +1312,43 @@ struct PlayerControls: View {
                 Spacer(minLength: 0)
                 bottomBar
             }.padding(.horizontal, theater ? 56 : 10).padding(.top, theater ? 16 : 2).padding(.bottom, theater ? 18 : 2)
-            HStack(spacing: theater ? 72 : 44) {
-                Button { act { model.skip(-10) } } label: { Image(systemName: "gobackward.10").font(.system(size: theater ? 34 : 24, weight: .semibold)).frame(width: 48, height: 48).contentShape(Rectangle()) }
+            HStack(spacing: theater ? 72 : 36) {
+                Button { act { model.skip(-10) } } label: { Image(systemName: "gobackward.10").font(.system(size: theater ? 34 : 21, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }
                     .accessibilityLabel("10 Sekunden zurück")
                 ZStack {
                     if model.isBuffering { ProgressView().controlSize(.large).tint(.white) }
                     else {
                         Button { act { model.togglePlay() } } label: {
-                            Image(systemName: model.isPlaying ? "pause.fill" : "play.fill").font(.system(size: theater ? 48 : 34, weight: .bold)).frame(width: 60, height: 60).contentShape(Rectangle())
+                            Image(systemName: model.isPlaying ? "pause.fill" : "play.fill").font(.system(size: theater ? 48 : 30, weight: .bold)).frame(width: 56, height: 56).contentShape(Rectangle())
                                 .id(model.isPlaying).transition(.scale(scale: 0.6).combined(with: .opacity))
                                 .animation(.spring(response: 0.28, dampingFraction: 0.6), value: model.isPlaying)
                         }.accessibilityLabel(model.isPlaying ? "Pause" : "Abspielen")
                     }
-                }.frame(width: 60, height: 60)
-                Button { act { model.skip(10) } } label: { Image(systemName: "goforward.10").font(.system(size: theater ? 34 : 24, weight: .semibold)).frame(width: 48, height: 48).contentShape(Rectangle()) }
+                }.frame(width: 56, height: 56)
+                Button { act { model.skip(10) } } label: { Image(systemName: "goforward.10").font(.system(size: theater ? 34 : 21, weight: .semibold)).frame(width: 44, height: 44).contentShape(Rectangle()) }
                     .accessibilityLabel("10 Sekunden vor")
             }.shadow(color: .black.opacity(0.4), radius: 8)
         }.buttonStyle(LoungePressStyle())
     }
     private var bottomBar: some View {
+        Group { if theater { fullBottomBar } else { compactBottomBar } }
+    }
+    /// Portrait: one row (time, timeline, full screen) so the small video keeps room for the centre buttons.
+    private var compactBottomBar: some View {
+        HStack(spacing: 10) {
+            Text(EpisodeProgress.format(scrub ?? clock.seconds)).font(.caption2.weight(.semibold).monospacedDigit())
+                .foregroundColor(.white.opacity(0.85)).fixedSize()
+            Scrubber(value: scrub ?? clock.seconds, duration: clock.duration, buffered: clock.buffered,
+                     changed: { scrub = $0; hideTask?.cancel() },
+                     ended: { model.seek(to: $0); scrub = nil; scheduleHide() })
+            Text(EpisodeProgress.format(clock.duration)).font(.caption2.weight(.semibold).monospacedDigit())
+                .foregroundColor(.white.opacity(0.6)).fixedSize()
+            Button { toggleFullscreen(); scheduleHide() } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right.rectangle").font(.body.weight(.semibold)).frame(width: 40, height: 40)
+            }.accessibilityLabel("Vollbild")
+        }
+    }
+    private var fullBottomBar: some View {
         VStack(spacing: theater ? 8 : 2) {
             Scrubber(value: scrub ?? clock.seconds, duration: clock.duration, buffered: clock.buffered,
                      changed: { scrub = $0; hideTask?.cancel() },
