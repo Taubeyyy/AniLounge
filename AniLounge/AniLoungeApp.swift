@@ -192,12 +192,13 @@ enum Theme {
 struct Artwork: View {
     let url: URL?
     @StateObject private var loader = CoverLoader()
+    @Environment(\.displayScale) private var displayScale
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 LinearGradient(colors: [Theme.accent.opacity(0.25), Theme.panel], startPoint: .topLeading, endPoint: .bottomTrailing)
                 // Pictures already in memory draw on the first frame, without a placeholder flash.
-                if let image = url.flatMap(ArtworkCache.shared.memoryImage) ?? loader.image {
+                if let image = url.flatMap({ ArtworkCache.shared.memoryImage($0, filling: pixels(geo.size)) }) ?? loader.image {
                     Image(uiImage: image).resizable().scaledToFill().transition(.opacity)
                 } else if url == nil {
                     Image(systemName: "photo").font(.title3).foregroundColor(.white.opacity(0.18))
@@ -206,8 +207,10 @@ struct Artwork: View {
                 }
             }.frame(width: geo.size.width, height: geo.size.height).clipped()
                 .animation(.easeOut(duration: 0.3), value: loader.image != nil)
-        }.task(id: url) { await loader.load(url) }.accessibilityHidden(true)
+            .task(id: url) { await loader.load(url, filling: pixels(geo.size)) }
+        }.accessibilityHidden(true)
     }
+    private func pixels(_ size: CGSize) -> CGSize { CGSize(width: size.width * displayScale, height: size.height * displayScale) }
 }
 struct PosterCard: View {
     let anime: Anime

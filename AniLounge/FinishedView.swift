@@ -46,7 +46,7 @@ struct FinishedView: View {
                                 .buttonStyle(LoungePressStyle())
                                 .contextMenu {
                                     Button { library.setStatus(.watching, for: anime) } label: { Label("Doch noch nicht fertig", systemImage: "play.circle") }
-                                    Button(role: .destructive) { library.setStatus(nil, for: anime); library.toggleWatchlist(anime) } label: {
+                                    Button(role: .destructive) { library.removeFromList(anime) } label: {
                                         Label("Aus der Liste entfernen", systemImage: "trash")
                                     }
                                 }

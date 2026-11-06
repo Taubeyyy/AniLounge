@@ -15,6 +15,7 @@ struct ProfileView: View {
             VStack(alignment: .leading, spacing: 26) {
                 header
                 stats.padding(.horizontal, 20)
+                WeekActivity(profile: library.active).padding(.horizontal, 20)
                 switcher
                 VStack(spacing: 0) {
                     NavigationLink { HistoryView() } label: { MenuRow(title: "Verlauf", icon: "clock.arrow.circlepath", detail: library.history.isEmpty ? nil : "\(library.history.count)") }

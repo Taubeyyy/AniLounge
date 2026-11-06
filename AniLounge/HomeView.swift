@@ -19,6 +19,7 @@ struct HomeView: View {
                 if feed == nil { AnimeShelf(title: "Meine Liste", items: library.favorites) }
                 if let feed {
                     if let error { Text(error).font(.footnote).foregroundColor(.orange).padding(.horizontal, 20) }
+                    BecauseYouWatchedShelf()
                     TopTenShelf(title: "Top 10 auf AniWorld", items: feed.popular)
                     AnimeShelf(title: "Beliebt auf AniWorld", items: Array(feed.popular.dropFirst(10)))
                     AnimeShelf(title: "Neue Folgen", items: Array(feed.recent.prefix(30)))

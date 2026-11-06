@@ -1112,7 +1112,7 @@ struct PlaybackView: View {
                                     Spacer()
                                     Text(LanguageLabel.short(host.language)).font(.caption.bold()).foregroundColor(Theme.muted)
                                     Image(systemName: current ? "checkmark.circle.fill" : "chevron.right").foregroundColor(current ? Theme.accent : Theme.muted)
-                                }.padding(12).background(Theme.panel).clipShape(RoundedRectangle(cornerRadius: 14))
+                                }.padding(12).glassCard(cornerRadius: 14)
                                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(current ? Theme.accent.opacity(0.6) : Theme.stroke))
                             }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
                         }
@@ -1461,6 +1461,11 @@ private struct SkipOverlay: View {
     @ObservedObject var model: PlayerModel
     @ObservedObject var clock: PlayheadClock
     let bottom: CGFloat
+    /// AniSkip's opening, only when its timing fits this cut of the episode.
+    private var usableOpening: ClosedRange<Double>? {
+        guard let times = model.skipTimes, times.fits(duration: model.player?.currentItem?.duration.seconds) else { return nil }
+        return times.opening
+    }
     private enum Kind: Equatable { case none, recap(Double), opening(Double), ending(Double), countdown(Int) }
     private var kind: Kind {
         if let seconds = model.countdown, model.nextEpisode != nil { return .countdown(seconds) }
@@ -1478,7 +1483,7 @@ private struct SkipOverlay: View {
             switch kind {
             case .none:
                 // Without AniSkip data, offer the classic 85-second intro jump early in the episode.
-                if model.skipTimes?.opening == nil, clock.seconds > 5, clock.seconds < 240, model.countdown == nil {
+                if usableOpening == nil, clock.seconds > 5, clock.seconds < 240, model.countdown == nil {
                     Button { model.skip(85) } label: { Label("Intro +85 s", systemImage: "forward.fill") }
                         .buttonStyle(OverlayButtonStyle())
                 }
