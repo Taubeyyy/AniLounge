@@ -106,6 +106,24 @@ final class PlayerSurfaceView: UIView {
     @Published var nextEpisodeError: String?
     @Published private(set) var caughtUp = false
     @Published var countdown: Int?
+    /// Sleep timer: stop at the end of this episode or after a number of minutes.
+    enum SleepTimer: Hashable { case off, episodeEnd, minutes(Int) }
+    @Published private(set) var sleepTimer: SleepTimer = .off
+    private var sleepDeadline: Date?
+    func setSleepTimer(_ value: SleepTimer) {
+        sleepTimer = value
+        if case .minutes(let minutes) = value { sleepDeadline = Date().addingTimeInterval(TimeInterval(minutes * 60)) } else { sleepDeadline = nil }
+        switch value {
+        case .off: showToast("Schlaf-Timer aus")
+        case .episodeEnd: showToast("Stoppt am Ende der Folge")
+        case .minutes(let minutes): showToast("Stoppt in \(minutes) Minuten")
+        }
+    }
+    private func sleepNow() {
+        sleepTimer = .off; sleepDeadline = nil
+        cancelCountdown(); player?.pause(); checkpoint()
+        showToast("Schlaf-Timer: Wiedergabe angehalten")
+    }
     @Published var autoNext = AppSettings.shared.autoNext
     @Published var recoveryMessage: String?
     @Published private(set) var inPictureInPicture = false
@@ -358,7 +376,9 @@ final class PlayerSurfaceView: UIView {
     func cancelCountdown() { countdownTask?.cancel(); countdownTask = nil; countdown = nil }
     private func episodeEnded() {
         guard !handledEnd else { return }
-        handledEnd = true; scheduleNext()
+        handledEnd = true
+        if sleepTimer == .episodeEnd { sleepNow(); return }
+        scheduleNext()
     }
     private func scheduleNext() {
         guard autoNext, nextEpisode != nil, countdownTask == nil else { return }
@@ -501,6 +521,7 @@ final class PlayerSurfaceView: UIView {
                         if let range = item.loadedTimeRanges.last?.timeRangeValue { self.clock.buffered = range.end.seconds }
                     }
                     self.autoSkipIfNeeded(time.seconds)
+                    if let deadline = self.sleepDeadline, Date() >= deadline { self.sleepNow() }
                 }
             }
             self.endObservation = NotificationCenter.default.addObserver(forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main) { [weak self] _ in
@@ -1014,6 +1035,16 @@ struct PlaybackView: View {
                 SheetToggle(title: "Bildschirm füllen", icon: "arrow.up.left.and.arrow.down.right", isOn: $model.fillScreen)
             }
             SheetToggle(title: "Nächste Folge automatisch", icon: "forward.end", isOn: Binding(get: { model.autoNext }, set: { model.setAutoNext($0) }))
+            SettingsPills(title: "Schlaf-Timer", icon: "moon.zzz.fill",
+                          options: [PlayerModel.SleepTimer.off, .episodeEnd, .minutes(15), .minutes(30), .minutes(60)],
+                          label: { timer in
+                              switch timer {
+                              case .off: return "Aus"
+                              case .episodeEnd: return "Folgenende"
+                              case .minutes(let minutes): return "\(minutes) Min"
+                              }
+                          },
+                          selection: Binding(get: { model.sleepTimer }, set: { model.setSleepTimer($0) }))
             SheetToggle(title: "Opening automatisch überspringen", icon: "forward.fill", isOn: Binding(get: { AppSettings.shared.autoSkipOpening }, set: { AppSettings.shared.autoSkipOpening = $0 }))
             if !model.isOffline {
                 SheetToggle(title: "Werbeblocker", icon: "shield.lefthalf.filled", isOn: Binding(get: { model.adBlockEnabled }, set: { model.setAdBlockEnabled($0) }))
@@ -1260,12 +1291,13 @@ private struct SkipOverlay: View {
     @ObservedObject var model: PlayerModel
     @ObservedObject var clock: PlayheadClock
     let bottom: CGFloat
-    private enum Kind: Equatable { case none, opening(Double), ending(Double), countdown(Int) }
+    private enum Kind: Equatable { case none, recap(Double), opening(Double), ending(Double), countdown(Int) }
     private var kind: Kind {
         if let seconds = model.countdown, model.nextEpisode != nil { return .countdown(seconds) }
         guard let times = model.skipTimes, times.fits(duration: model.player?.currentItem?.duration.seconds) else { return .none }
         let now = clock.seconds
         // With automatic skipping on, the opening is skipped for you; no button needed.
+        if let recap = times.recap, now >= recap.lowerBound - 1, now < recap.upperBound - 3 { return .recap(recap.upperBound) }
         if let op = times.opening, !AppSettings.shared.autoSkipOpening, now >= op.lowerBound - 1, now < op.upperBound - 3 { return .opening(op.upperBound) }
         if let ed = times.ending, now >= ed.lowerBound, now < ed.upperBound - 3 { return .ending(ed.upperBound) }
         return .none
@@ -1276,6 +1308,9 @@ private struct SkipOverlay: View {
             switch kind {
             case .none:
                 EmptyView()
+            case .recap(let end):
+                Button { model.seek(to: end) } label: { Label("Rückblick überspringen", systemImage: "forward.fill") }
+                    .buttonStyle(OverlayButtonStyle())
             case .opening(let end):
                 Button { model.seek(to: end) } label: { Label("Opening überspringen", systemImage: "forward.fill") }
                     .buttonStyle(OverlayButtonStyle())

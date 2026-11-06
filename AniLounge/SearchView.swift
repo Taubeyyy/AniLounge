@@ -9,6 +9,7 @@ struct SearchView: View {
     @State private var loading = false
     @AppStorage("search.recent") private var recentStore = ""
     @FocusState private var focused: Bool
+    @State private var surprise: Anime?
     private var recent: [String] { recentStore.split(separator: "\n").map(String.init) }
     private func remember(_ term: String) {
         let clean = term.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -32,6 +33,15 @@ struct SearchView: View {
                 }.padding(.leading, 16).padding(.trailing, 4).frame(minHeight: 56).background(Theme.panelHigh).clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(focused ? Theme.accent.opacity(0.7) : .clear, lineWidth: 1.5))
                     .animation(.easeOut(duration: 0.15), value: focused)
+                if query.isEmpty && !catalog.isEmpty {
+                    Button {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        surprise = catalog.randomElement()
+                    } label: {
+                        Label("Überrasch mich", systemImage: "dice.fill").font(.subheadline.bold()).frame(maxWidth: .infinity).frame(minHeight: 48)
+                            .background(Theme.panel).clipShape(RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.stroke))
+                    }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
+                }
                 if query.isEmpty && !recent.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
@@ -77,6 +87,9 @@ struct SearchView: View {
             }.padding(.horizontal, 20)
         }
         .autocorrectionDisabled()
+        .navigationDestination(isPresented: Binding(get: { surprise != nil }, set: { if !$0 { surprise = nil } })) {
+            if let surprise { DetailView(anime: surprise) }
+        }
         .scrollDismissesKeyboard(.immediately)
         .task { if catalog.isEmpty { await load() } }
         .refreshable { await AniClient.shared.clearCache(); await load() }

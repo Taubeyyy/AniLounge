@@ -50,7 +50,7 @@ struct DetailView: View {
         .task(id: continuationKey) { if detail != nil { await resolveContinuation() } }
         .task(id: (detail?.imdb ?? "") + selectedSeason) { await loadEpisodeExtras() }
         .sheet(item: $editingProgress) { episode in ProgressEditor(anime: currentAnime, episode: episode, profileID: library.profile.id).environmentObject(library) }
-        .loungeSheet(isPresented: Binding(get: { actionsFor != nil }, set: { if !$0 { actionsFor = nil } }), height: 250) {
+        .loungeSheet(isPresented: Binding(get: { actionsFor != nil }, set: { if !$0 { actionsFor = nil } }), height: 360) {
             if let episode = actionsFor { episodeActions(episode) }
         }
     }
@@ -262,6 +262,14 @@ struct DetailView: View {
             SheetRow(title: "Abspielen", icon: "play.fill") { actionsFor = nil; open(episode) }
             SheetRow(title: isSeen(episode) ? "Als ungesehen markieren" : "Als gesehen markieren", icon: isSeen(episode) ? "eye.slash" : "checkmark") {
                 actionsFor = nil; library.setWatched(!isSeen(episode), episode: episode, anime: currentAnime)
+            }
+            if let index = episodes.firstIndex(where: { $0.id == episode.id }), index > 0 {
+                SheetRow(title: "Bis hier als gesehen markieren", icon: "checkmark.circle", detail: "\(index + 1) Folgen") {
+                    actionsFor = nil; library.markWatched(Array(episodes.prefix(index + 1)), anime: currentAnime)
+                }
+            }
+            SheetRow(title: "Ganze Staffel als gesehen markieren", icon: "checkmark.seal") {
+                actionsFor = nil; library.markWatched(episodes, anime: currentAnime)
             }
             SheetRow(title: "Fortschritt bearbeiten", icon: "clock") {
                 actionsFor = nil

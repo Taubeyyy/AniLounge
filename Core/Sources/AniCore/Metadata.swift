@@ -34,6 +34,8 @@ public struct SkipTimes: Sendable, Equatable {
     public let ending: ClosedRange<Double>?
     /// Length of the video the times were measured on.
     public let episodeLength: Double?
+    /// "Previously on" recap at the start of an episode, when AniSkip knows it.
+    public var recap: ClosedRange<Double>? = nil
     /// Times are only trusted when the playing video has about the same length.
     public func fits(duration: Double?) -> Bool {
         guard let duration, duration.isFinite, duration > 0, let episodeLength, episodeLength > 0 else { return true }
@@ -126,7 +128,7 @@ public enum MetadataParser {
     public static func skipTimes(fromAniSkip data: Data) throws -> SkipTimes? {
         let json = try object(data)
         guard json["found"] as? Bool == true, let results = json["results"] as? [[String: Any]] else { return nil }
-        var opening: ClosedRange<Double>?, ending: ClosedRange<Double>?, length: Double?
+        var opening: ClosedRange<Double>?, ending: ClosedRange<Double>?, recap: ClosedRange<Double>?, length: Double?
         for result in results {
             guard let interval = result["interval"] as? [String: Any],
                   let start = (interval["startTime"] as? NSNumber)?.doubleValue, let end = (interval["endTime"] as? NSNumber)?.doubleValue,
@@ -134,11 +136,13 @@ public enum MetadataParser {
             switch result["skipType"] as? String {
             case "op" where opening == nil: opening = start...end
             case "ed" where ending == nil: ending = start...end
+            case "recap" where recap == nil: recap = start...end
             default: continue
             }
             if length == nil, let value = (result["episodeLength"] as? NSNumber)?.doubleValue, value > 0 { length = value }
         }
-        return opening == nil && ending == nil ? nil : SkipTimes(opening: opening, ending: ending, episodeLength: length)
+        guard opening != nil || ending != nil || recap != nil else { return nil }
+        return SkipTimes(opening: opening, ending: ending, episodeLength: length, recap: recap)
     }
     /// AniWorld's IMDb link, e.g. `tt0388629`.
     public static func validIMDb(_ value: String) -> String? {
@@ -250,7 +254,7 @@ public actor MetadataClient {
         guard let mal = episode.malID, let number = episode.malEpisode, mal > 0, number > 0 else { return nil }
         let key = "\(mal)#\(number)"
         if let cached = skips[key] { return cached }
-        guard let url = URL(string: "https://api.aniskip.com/v2/skip-times/\(mal)/\(number)?types=op&types=ed&episodeLength=0") else { return nil }
+        guard let url = URL(string: "https://api.aniskip.com/v2/skip-times/\(mal)/\(number)?types=op&types=ed&types=recap&episodeLength=0") else { return nil }
         // AniSkip answers 404 when nobody submitted times yet; that is a normal "no data".
         let result = (try? await fetch(URLRequest(url: url))).flatMap { try? MetadataParser.skipTimes(fromAniSkip: $0) }
         skips[key] = result

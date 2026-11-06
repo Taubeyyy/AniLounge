@@ -183,6 +183,12 @@ struct PosterCard: View {
                     }
                 }
                 .shadow(color: .black.opacity(0.4), radius: 10, y: 6)
+                .contextMenu {
+                    Button { library.toggleWatchlist(anime) } label: {
+                        Label(saved ? "Von der Watchlist entfernen" : "Zur Watchlist", systemImage: saved ? "bookmark.slash" : "bookmark")
+                    }
+                    if let url = AniURL.page(anime.path) { ShareLink(item: url) { Label("Teilen", systemImage: "square.and.arrow.up") } }
+                }
             Text(anime.title).font(.caption.weight(.semibold)).lineLimit(3).fixedSize(horizontal: false, vertical: true)
         }.frame(width: width).foregroundColor(.white)
     }
