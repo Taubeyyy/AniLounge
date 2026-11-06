@@ -15,6 +15,13 @@ struct AnimeArtwork: View {
     @Published var image: UIImage?
     private static let cache = NSCache<NSURL, UIImage>()
     static func clearCache() { cache.removeAllObjects() }
+    /// The cached image, or a one-off load for callers outside a view (e.g. colour sampling).
+    static func image(for url: URL) async -> UIImage? {
+        if let cached = cache.object(forKey: url as NSURL) { return cached }
+        let loader = CoverLoader()
+        await loader.load(url)
+        return loader.image
+    }
     func load(_ url: URL?) async {
         image = nil
         guard let url else { return }

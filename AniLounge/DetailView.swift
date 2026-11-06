@@ -19,6 +19,9 @@ struct DetailView: View {
     @State private var extras: AnimeExtras?
     @State private var episodeExtras: [String: EpisodeExtras] = [:]
     @State private var similar: [Anime] = []
+    @State private var tab: DetailTab = .episodes
+    @State private var tint: Color?
+    private enum DetailTab: String, CaseIterable { case episodes = "Folgen", similar = "Ähnliche", details = "Details" }
     private var currentAnime: Anime { detail?.anime ?? anime }
     var body: some View {
         LoungeScroll(title: currentAnime.title, underBar: true, threshold: 300) {
@@ -26,7 +29,6 @@ struct DetailView: View {
                 header
                 if let detail {
                     detailContent(detail)
-                    if !similar.isEmpty { AnimeShelf(title: "Ähnliche Anime", items: similar).padding(.top, 34) }
                 } else if let error {
                     ProblemView(message: error) { Task { await loadDetail() } }
                 } else { ProgressView().tint(Theme.accent).frame(maxWidth: .infinity).padding(40) }
@@ -41,6 +43,10 @@ struct DetailView: View {
         .task { if detail == nil { await loadDetail() } }
         .task(id: selectedSeason) { if !selectedSeason.isEmpty { await loadSeason(selectedSeason) } }
         .task(id: detail?.imdb) { await loadExtras() }
+        .task(id: headerURL) {
+            guard let color = await AmbientColor.color(for: headerURL), !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.6)) { tint = color }
+        }
         .task(id: continuationKey) { if detail != nil { await resolveContinuation() } }
         .task(id: (detail?.imdb ?? "") + selectedSeason) { await loadEpisodeExtras() }
         .sheet(item: $editingProgress) { episode in ProgressEditor(anime: currentAnime, episode: episode, profileID: library.profile.id).environmentObject(library) }
@@ -57,10 +63,20 @@ struct DetailView: View {
             headerContent.frame(width: geo.size.width, height: 420 + pull).clipped().offset(y: -pull)
         }.frame(height: 420)
     }
+    private var headerURL: URL? { detail?.backdrop ?? extras?.banner ?? currentAnime.poster }
+    /// Year, seasons and language versions in one line, like the metadata row of streaming apps.
+    private var metadataLine: String? {
+        guard let detail else { return nil }
+        let seasons = detail.seasons.filter { $0.path.contains("/staffel-") }.count
+        let languages = Array(Set(episodes.flatMap(\.languages).map(LanguageLabel.short))).sorted()
+        let parts = [detail.year, seasons > 1 ? "\(seasons) Staffeln" : seasons == 1 ? "1 Staffel" : ""] + languages
+        let line = parts.filter { !$0.isEmpty }.joined(separator: " · ")
+        return line.isEmpty ? nil : line
+    }
     private var headerContent: some View {
         ZStack(alignment: .bottomLeading) {
             // AniWorld's backdrop fits the tall header; AniList banners are a fallback.
-            Artwork(url: detail?.backdrop ?? extras?.banner ?? currentAnime.poster)
+            Artwork(url: headerURL)
                 .blur(radius: detail?.backdrop == nil && extras?.banner == nil ? 20 : 0)
             LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0), .init(color: .clear, location: 0.3),
                                    .init(color: Theme.background.opacity(0.75), location: 0.7), .init(color: Theme.background, location: 1)],
@@ -72,9 +88,8 @@ struct DetailView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(currentAnime.title).font(.system(size: 26, weight: .heavy, design: .rounded)).lineLimit(3).minimumScaleFactor(0.7)
                     if let extras { ExtrasBadges(extras: extras) }
-                    if let detail {
-                        Text(([detail.year] + detail.genres.prefix(3)).filter { !$0.isEmpty }.joined(separator: " · "))
-                            .font(.caption.weight(.semibold)).foregroundColor(Theme.muted).lineLimit(2)
+                    if let metadataLine {
+                        Text(metadataLine).font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.8)).lineLimit(2)
                     }
                 }
             }.padding(.horizontal, 20).padding(.bottom, 4)
@@ -135,13 +150,70 @@ struct DetailView: View {
                         .font(.subheadline.bold()).foregroundColor(Theme.accentSoft).frame(minHeight: 44)
                         .accessibilityValue(expanded ? "Aufgeklappt" : "Eingeklappt")
                 }
-                if let studio = extras?.studio { InfoLine(icon: "building.2", text: "Studio: \(studio)") }
                 if let episode = extras?.nextEpisode, let date = extras?.nextAiring, date > Date() {
                     InfoLine(icon: "calendar", text: "Folge \(episode) in Japan: " + date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).hour().minute()))
                 }
             }
-            episodesSection(detail)
+            tabBar
+            switch tab {
+            case .episodes: episodesSection(detail)
+            case .similar: similarSection
+            case .details: detailsSection(detail)
+            }
         }.padding(.horizontal, 20).padding(.top, 14)
+            // The header's colour carries on faintly behind the content.
+            .background(alignment: .top) {
+                LinearGradient(colors: [(tint ?? .clear).opacity(0.45), .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 520).offset(y: -60).allowsHitTesting(false).accessibilityHidden(true)
+            }
+    }
+    /// Netflix-style tabs with a sliding underline.
+    @Namespace private var tabLine
+    private var tabBar: some View {
+        HStack(spacing: 22) {
+            ForEach(DetailTab.allCases.filter { $0 != .similar || !similar.isEmpty }, id: \.self) { item in
+                Button {
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { tab = item }
+                } label: {
+                    VStack(spacing: 8) {
+                        Text(item.rawValue).font(.subheadline.weight(.bold)).foregroundColor(tab == item ? .white : Theme.muted)
+                        ZStack {
+                            Rectangle().fill(.clear).frame(height: 3)
+                            if tab == item { Rectangle().fill(Theme.accent).frame(height: 3).matchedGeometryEffect(id: "line", in: tabLine) }
+                        }
+                    }.fixedSize().contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityAddTraits(tab == item ? .isSelected : [])
+            }
+            Spacer(minLength: 0)
+        }
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.stroke).frame(height: 1) }
+    }
+    private var similarSection: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 12, alignment: .top)], spacing: 18) {
+            ForEach(similar) { item in
+                NavigationLink { DetailView(anime: item) } label: { GridPoster(anime: item) }.buttonStyle(LoungePressStyle())
+            }
+        }
+    }
+    /// Everything about the series in one place, like the Details tab of Disney+.
+    private func detailsSection(_ detail: AnimeDetail) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !detail.genres.isEmpty { DetailFact(title: "Genres", value: detail.genres.joined(separator: ", ")) }
+            if !detail.year.isEmpty { DetailFact(title: "Erschienen", value: detail.year) }
+            if let studio = extras?.studio { DetailFact(title: "Studio", value: studio) }
+            if let score = extras?.score { DetailFact(title: "Bewertung", value: "\(score) % auf AniList") }
+            if let status = extras?.status { DetailFact(title: "Status", value: ExtrasBadges.statusText(status) ?? status.capitalized) }
+            let seasons = detail.seasons.filter { $0.path.contains("/staffel-") }.count
+            if seasons > 0 { DetailFact(title: "Staffeln", value: "\(seasons)") }
+            let languages = Array(Set(episodes.flatMap(\.languages))).sorted()
+            if !languages.isEmpty { DetailFact(title: "Sprachen", value: languages.joined(separator: ", ")) }
+            if let episode = extras?.nextEpisode, let date = extras?.nextAiring, date > Date() {
+                DetailFact(title: "Nächste Folge", value: "Folge \(episode), " + date.formatted(.dateTime.weekday(.wide).day().month(.wide).hour().minute()))
+            }
+            DetailFact(title: "Quelle", value: "AniWorld" + (extras == nil ? "" : " · AniList"))
+        }
+    }
     }
     private func episodesSection(_ detail: AnimeDetail) -> some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -321,6 +393,10 @@ struct EpisodeRow: View {
                         Text("Folge \(episode.number)").font(.caption.bold()).foregroundColor(current ? Theme.accentSoft : Theme.muted)
                         Text(title).font(.subheadline.bold()).foregroundColor(seen ? .white.opacity(0.6) : .white)
                             .multilineTextAlignment(.leading).lineLimit(typeSize.isAccessibilitySize ? nil : 3)
+                        // Short synopsis under the title, as Netflix shows it.
+                        if let overview = info?.overview, !typeSize.isAccessibilitySize {
+                            Text(overview).font(.caption).foregroundColor(Theme.muted).lineLimit(2).multilineTextAlignment(.leading)
+                        }
                         HStack(spacing: 6) {
                             if let runtime = info?.runtime { Text("\(runtime) Min").font(.caption2).foregroundColor(Theme.muted) }
                             LanguageChips(languages: episode.languages)
@@ -378,6 +454,19 @@ private struct ActionColumn: View {
         Button(action: action) { ActionColumnLabel(title: title, icon: icon) }.buttonStyle(LoungePressStyle())
     }
 }
+private struct DetailFact: View {
+    let title: String
+    let value: String
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(title).font(.subheadline).foregroundColor(Theme.muted).frame(width: 110, alignment: .leading)
+            Text(value).font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 12)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.stroke).frame(height: 1) }
+        .accessibilityElement(children: .combine)
+    }
+}
 private struct InfoLine: View {
     let icon: String
     let text: String
@@ -400,8 +489,9 @@ struct ExtrasBadges: View {
             }
         }
     }
-    private var statusText: String? {
-        switch extras.status {
+    private var statusText: String? { Self.statusText(extras.status) }
+    static func statusText(_ status: String?) -> String? {
+        switch status {
         case "RELEASING": return "Läuft"
         case "FINISHED": return "Abgeschlossen"
         case "NOT_YET_RELEASED": return "Bald"

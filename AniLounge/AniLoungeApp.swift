@@ -111,13 +111,10 @@ struct SectionHeader: View {
     let title: String
     var subtitle: String? = nil
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 4, height: 18)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.system(.title3, design: .rounded).bold())
-                if let subtitle { Text(subtitle).font(.caption).foregroundColor(Theme.accentSoft) }
-            }
-        }.padding(.horizontal, 20).accessibilityAddTraits(.isHeader)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.title3.weight(.bold))
+            if let subtitle { Text(subtitle).font(.caption).foregroundColor(Theme.muted) }
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).accessibilityAddTraits(.isHeader)
     }
 }
 struct PosterSkeleton: View {
@@ -201,6 +198,38 @@ struct AnimeShelf: View {
                     LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(items) { anime in
                             NavigationLink { DetailView(anime: anime) } label: { PosterCard(anime: anime) }.buttonStyle(LoungePressStyle())
+                        }
+                    }.padding(.horizontal, 20)
+                }
+            }
+        }
+    }
+}
+/// Netflix-style ranking row: large outlined numerals tucked behind the posters.
+struct TopTenShelf: View {
+    let title: String
+    let items: [Anime]
+    var body: some View {
+        if !items.isEmpty {
+            VStack(alignment: .leading, spacing: 14) {
+                SectionHeader(title: title)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .bottom, spacing: 6) {
+                        ForEach(Array(items.prefix(10).enumerated()), id: \.element.id) { index, anime in
+                            NavigationLink { DetailView(anime: anime) } label: {
+                                HStack(alignment: .bottom, spacing: -22) {
+                                    Text("\(index + 1)")
+                                        .font(.system(size: 104, weight: .black, design: .rounded)).monospacedDigit()
+                                        .foregroundStyle(LinearGradient(colors: [.white.opacity(0.85), .white.opacity(0.15)], startPoint: .top, endPoint: .bottom))
+                                        .shadow(color: .black.opacity(0.6), radius: 1, x: 2, y: 0)
+                                        .frame(minWidth: 52, alignment: .trailing).offset(y: 14)
+                                        .accessibilityHidden(true)
+                                    AnimeArtwork(anime: anime).frame(width: 104, height: 156)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.stroke))
+                                        .shadow(color: .black.opacity(0.5), radius: 8, x: -4)
+                                }
+                            }.buttonStyle(LoungePressStyle()).accessibilityLabel("Platz \(index + 1): \(anime.title)")
                         }
                     }.padding(.horizontal, 20)
                 }
