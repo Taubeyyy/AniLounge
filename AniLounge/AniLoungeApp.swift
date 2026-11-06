@@ -214,15 +214,14 @@ struct Artwork: View {
             ZStack {
                 LinearGradient(colors: [Theme.accent.opacity(0.25), Theme.panel], startPoint: .topLeading, endPoint: .bottomTrailing)
                 // Pictures already in memory draw on the first frame, without a placeholder flash.
-                if let image = url.flatMap({ ArtworkCache.shared.memoryImage($0, filling: pixels(geo.size)) }) ?? loader.image {
-                    Image(uiImage: image).resizable().scaledToFill().transition(.opacity)
+                if let image = url.flatMap({ ArtworkCache.shared.memoryImage($0) }) ?? loader.image(for: url) {
+                    Image(uiImage: image).resizable().scaledToFill()
                 } else if url == nil {
                     Image(systemName: "photo").font(.title3).foregroundColor(.white.opacity(0.18))
                 } else {
                     Color.clear.shimmer()
                 }
             }.frame(width: geo.size.width, height: geo.size.height).clipped()
-                .animation(.easeOut(duration: 0.3), value: loader.image != nil)
             .task(id: url) { await loader.load(url, filling: pixels(geo.size)) }
         }.accessibilityHidden(true)
     }

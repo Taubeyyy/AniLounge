@@ -7,6 +7,10 @@ public actor AniClient {
     public static let shared = AniClient()
     private var cache: [String: (Date, String)] = [:]
     private var covers: [String: URL] = [:]
+    private nonisolated let artworkLinks: CachedArtworkLinks
+    /// Synchronous, memory-only lookup for a view's very first frame.
+    public nonisolated func cachedCover(for anime: Anime) -> URL? { anime.poster ?? artworkLinks.get(anime.id, wide: false) }
+    public nonisolated func cachedBackdrop(for anime: Anime) -> URL? { artworkLinks.get(anime.id, wide: true) }
     private var pendingCovers: [String: Task<URL?, Never>] = [:]
     public func cover(for anime: Anime) async -> URL? {
         if let poster = anime.poster { return poster }
@@ -16,7 +20,7 @@ public actor AniClient {
         pendingCovers[anime.id] = task
         let result = await task.value
         pendingCovers[anime.id] = nil
-        if let result { covers[anime.id] = result; persist(covers, key: Self.coverKey) }
+        if let result { covers[anime.id] = result; artworkLinks.set(result, for: anime.id, wide: false); persist(covers, key: Self.coverKey) }
         return result
     }
     private var backdrops: [String: URL] = [:]
@@ -29,7 +33,7 @@ public actor AniClient {
         pendingBackdrops[anime.id] = task
         let result = await task.value
         pendingBackdrops[anime.id] = nil
-        if let result { backdrops[anime.id] = result; persist(backdrops, key: Self.backdropKey) }
+        if let result { backdrops[anime.id] = result; artworkLinks.set(result, for: anime.id, wide: true); persist(backdrops, key: Self.backdropKey) }
         return result
     }
     /// Artwork links found on detail pages are kept across launches, so cards no longer
@@ -46,8 +50,11 @@ public actor AniClient {
     private let session: URLSession
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        covers = Self.links(defaults, key: Self.coverKey)
-        backdrops = Self.links(defaults, key: Self.backdropKey)
+        let storedCovers = Self.links(defaults, key: Self.coverKey)
+        let storedBackdrops = Self.links(defaults, key: Self.backdropKey)
+        covers = storedCovers
+        backdrops = storedBackdrops
+        artworkLinks = CachedArtworkLinks(covers: storedCovers, backdrops: storedBackdrops)
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 25
         config.timeoutIntervalForResource = 45
@@ -75,5 +82,21 @@ public actor AniClient {
     public func detail(path: String) async throws -> AnimeDetail { try AniParser.detail(await page(path), path: path) }
     public func hosts(path: String) async throws -> [StreamHost] { try AniParser.hosts(await page(path)) }
     public func clearCache() { cache.removeAll() }
+}
+
+/// The actor writes this tiny URL snapshot; SwiftUI reads it without waiting on a task.
+private final class CachedArtworkLinks: @unchecked Sendable {
+    private let lock = NSLock()
+    private var covers: [String: URL]
+    private var backdrops: [String: URL]
+    init(covers: [String: URL], backdrops: [String: URL]) { self.covers = covers; self.backdrops = backdrops }
+    func get(_ id: String, wide: Bool) -> URL? {
+        lock.lock(); defer { lock.unlock() }
+        return wide ? backdrops[id] : covers[id]
+    }
+    func set(_ url: URL, for id: String, wide: Bool) {
+        lock.lock(); defer { lock.unlock() }
+        if wide { backdrops[id] = url } else { covers[id] = url }
+    }
 }
 

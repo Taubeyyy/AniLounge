@@ -118,12 +118,11 @@ struct LoungeLogo: View {
 /// Landscape artwork: AniWorld's wide backdrop, falling back to the poster.
 struct WideArtwork: View {
     let anime: Anime
-    @State private var backdrop: URL?
-    @State private var resolved = false
+    @State private var resolved: (id: String, url: URL?)?
     var body: some View {
         ZStack {
-            if let backdrop { Artwork(url: backdrop) }
-            else if resolved {
+            if let backdrop = AniClient.shared.cachedBackdrop(for: anime) ?? (resolved?.id == anime.id ? resolved?.url : nil) { Artwork(url: backdrop) }
+            else if resolved?.id == anime.id || AniClient.shared.cachedCover(for: anime) != nil {
                 // No wide picture: a soft blurred backdrop with the sharp poster on top, instead of
                 // stretching a small portrait poster until it turns into pixels.
                 ZStack {
@@ -134,7 +133,9 @@ struct WideArtwork: View {
             }
             else { Theme.panel.shimmer() }
         }.task(id: anime.id) {
-            backdrop = await AniClient.shared.backdrop(for: anime); resolved = true
+            let backdrop = await AniClient.shared.backdrop(for: anime)
+            guard !Task.isCancelled else { return }
+            resolved = (anime.id, backdrop)
         }
     }
 }
