@@ -7,7 +7,10 @@ import AniCore
     @StateObject private var library = LibraryStore()
     var body: some Scene {
         WindowGroup {
-            RootView().environmentObject(library).preferredColorScheme(.dark).tint(Theme.accent).task { DownloadStore.shared.start() }
+            RootView().environmentObject(library).preferredColorScheme(.dark).tint(Theme.accent).task {
+                DownloadStore.shared.start()
+                Task.detached(priority: .background) { ArtworkCache.shared.trim() }
+            }
         }
     }
 }
@@ -18,6 +21,7 @@ struct RootView: View {
     @ObservedObject private var catalogs = SeriesCatalogStore.shared
     @State private var selected = 0
     @State private var showingCalendar = false
+    @State private var launching = true
     private let tabs = [("Start", "house.fill"), ("Suche", "magnifyingglass"), ("Watchlist", "bookmark.fill"), ("Downloads", "arrow.down.circle.fill"), ("Profil", "person.crop.circle.fill")]
     var body: some View {
         TabView(selection: $selected) {
@@ -31,6 +35,7 @@ struct RootView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { LoungeTabBar(tabs: tabs, selected: $selected) }
         .id(library.profile.id)
         .overlay(alignment: .top) { ToastHost() }
+        .overlay { if launching { LaunchOverlay { launching = false }.transition(.opacity).zIndex(10) } }
         // Every episode opens here, and so does a restored Picture in Picture window.
         .fullScreenCover(item: $playback.presented) { PlaybackView(model: $0) }
         .confirmationDialog("Gespeicherte Sprachfassung", isPresented: Binding(
@@ -117,6 +122,14 @@ extension View {
             .overlay(RoundedRectangle(cornerRadius: 22).stroke(Theme.stroke))
     }
     func shimmer(_ active: Bool = true) -> some View { modifier(Shimmer(active: active)) }
+    /// A light glass surface: blurred background, faint tint and a thin highlight edge.
+    func glassCard(cornerRadius: CGFloat = 16) -> some View {
+        self.background(.ultraThinMaterial)
+            .background(Theme.panel.opacity(0.45))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            .overlay(RoundedRectangle(cornerRadius: cornerRadius)
+                .stroke(LinearGradient(colors: [.white.opacity(0.18), .white.opacity(0.04)], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+    }
 }
 struct Shimmer: ViewModifier {
     let active: Bool
@@ -183,10 +196,13 @@ struct Artwork: View {
         GeometryReader { geo in
             ZStack {
                 LinearGradient(colors: [Theme.accent.opacity(0.25), Theme.panel], startPoint: .topLeading, endPoint: .bottomTrailing)
-                if let image = loader.image {
+                // Pictures already in memory draw on the first frame, without a placeholder flash.
+                if let image = url.flatMap(ArtworkCache.shared.memoryImage) ?? loader.image {
                     Image(uiImage: image).resizable().scaledToFill().transition(.opacity)
+                } else if url == nil {
+                    Image(systemName: "photo").font(.title3).foregroundColor(.white.opacity(0.18))
                 } else {
-                    Image(systemName: "sparkles").font(.largeTitle).foregroundColor(Theme.accent.opacity(0.35))
+                    Color.clear.shimmer()
                 }
             }.frame(width: geo.size.width, height: geo.size.height).clipped()
                 .animation(.easeOut(duration: 0.3), value: loader.image != nil)
@@ -209,7 +225,6 @@ struct PosterCard: View {
                             .background(Theme.accent).clipShape(Circle()).padding(6).accessibilityLabel("In der Watchlist")
                     }
                 }
-                .shadow(color: .black.opacity(0.4), radius: 10, y: 6)
                 .contextMenu {
                     Button { library.toggleWatchlist(anime) } label: {
                         Label(saved ? "Von der Watchlist entfernen" : "Zur Watchlist", systemImage: saved ? "bookmark.slash" : "bookmark")
@@ -234,6 +249,8 @@ struct AnimeShelf: View {
                         }
                     }.padding(.horizontal, 20)
                 }
+                // Posters further along the row are fetched before the viewer swipes to them.
+                .task(id: items.count) { ArtworkCache.shared.prefetch(Array(items.compactMap(\.poster).prefix(20))) }
             }
         }
     }

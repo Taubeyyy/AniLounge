@@ -16,7 +16,7 @@ public actor AniClient {
         pendingCovers[anime.id] = task
         let result = await task.value
         pendingCovers[anime.id] = nil
-        if let result { covers[anime.id] = result }
+        if let result { covers[anime.id] = result; persist(covers, key: Self.coverKey) }
         return result
     }
     private var backdrops: [String: URL] = [:]
@@ -29,11 +29,25 @@ public actor AniClient {
         pendingBackdrops[anime.id] = task
         let result = await task.value
         pendingBackdrops[anime.id] = nil
-        if let result { backdrops[anime.id] = result }
+        if let result { backdrops[anime.id] = result; persist(backdrops, key: Self.backdropKey) }
         return result
     }
+    /// Artwork links found on detail pages are kept across launches, so cards no longer
+    /// load a whole series page just to find their picture.
+    private static let coverKey = "artwork.covers.v1"
+    private static let backdropKey = "artwork.backdrops.v1"
+    private let defaults: UserDefaults
+    private func persist(_ links: [String: URL], key: String) {
+        defaults.set(links.mapValues(\.absoluteString), forKey: key)
+    }
+    private static func links(_ defaults: UserDefaults, key: String) -> [String: URL] {
+        ((defaults.dictionary(forKey: key) as? [String: String]) ?? [:]).compactMapValues { URL(string: $0) }
+    }
     private let session: URLSession
-    public init() {
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        covers = Self.links(defaults, key: Self.coverKey)
+        backdrops = Self.links(defaults, key: Self.backdropKey)
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 25
         config.timeoutIntervalForResource = 45

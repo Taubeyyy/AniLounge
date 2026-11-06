@@ -9,7 +9,6 @@ struct SearchView: View {
     @State private var loading = false
     @AppStorage("search.recent") private var recentStore = ""
     @FocusState private var focused: Bool
-    @State private var surprise: Anime?
     @State private var genres: [Genre] = []
     private var recent: [String] { recentStore.split(separator: "\n").map(String.init) }
     private func remember(_ term: String) {
@@ -35,12 +34,18 @@ struct SearchView: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(focused ? Theme.accent.opacity(0.7) : .clear, lineWidth: 1.5))
                     .animation(.easeOut(duration: 0.15), value: focused)
                 if query.isEmpty && !catalog.isEmpty {
-                    Button {
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                        surprise = catalog.randomElement()
-                    } label: {
-                        Label("Überrasch mich", systemImage: "dice.fill").font(.subheadline.bold()).frame(maxWidth: .infinity).frame(minHeight: 48)
-                            .background(Theme.panel).clipShape(RoundedRectangle(cornerRadius: 12)).overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.stroke))
+                    // Two calm entry points instead of a wall of 2000 posters.
+                    HStack(spacing: 10) {
+                        NavigationLink { RandomAnimeView(catalog: catalog) } label: {
+                            Label("Überrasch mich", systemImage: "shuffle").font(.subheadline.bold()).frame(maxWidth: .infinity).frame(minHeight: 48)
+                                .background(.ultraThinMaterial).clipShape(RoundedRectangle(cornerRadius: 14))
+                                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.stroke))
+                        }
+                        NavigationLink { GenreView(genre: Genre(name: "Alle Anime", anime: catalog)) } label: {
+                            Label("Alle A–Z", systemImage: "list.bullet").font(.subheadline.bold()).frame(maxWidth: .infinity).frame(minHeight: 48)
+                                .background(.ultraThinMaterial).clipShape(RoundedRectangle(cornerRadius: 14))
+                                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.stroke))
+                        }
                     }.buttonStyle(LoungePressStyle()).foregroundColor(.white)
                 }
                 if query.isEmpty && !recent.isEmpty {
@@ -78,8 +83,8 @@ struct SearchView: View {
                         ForEach(0..<12, id: \.self) { _ in RoundedRectangle(cornerRadius: 12).fill(Theme.panel).aspectRatio(2 / 3, contentMode: .fit).shimmer() }
                     }.padding(.top, 16)
                 }
-                else {
-                    Text(query.isEmpty ? "Alle \(results.count) Anime" : "\(results.count) Treffer")
+                else if !query.isEmpty {
+                    Text("\(results.count) Treffer")
                         .font(.footnote.weight(.semibold)).foregroundColor(Theme.muted).padding(.top, 6)
                     if results.isEmpty {
                         VStack(spacing: 10) {
@@ -91,16 +96,13 @@ struct SearchView: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 150 : 104), spacing: 12, alignment: .top)], spacing: 18) {
                         ForEach(results) { anime in
                             NavigationLink { DetailView(anime: anime) } label: { GridPoster(anime: anime) }.buttonStyle(LoungePressStyle())
-                                .simultaneousGesture(TapGesture().onEnded { if !query.isEmpty { remember(query) } })
+                                .simultaneousGesture(TapGesture().onEnded { remember(query) })
                         }
                     }
                 }
             }.padding(.horizontal, 20)
         }
         .autocorrectionDisabled()
-        .navigationDestination(isPresented: Binding(get: { surprise != nil }, set: { if !$0 { surprise = nil } })) {
-            if let surprise { DetailView(anime: surprise) }
-        }
         .scrollDismissesKeyboard(.immediately)
         .task { if catalog.isEmpty { await load() } }
         .refreshable { await AniClient.shared.clearCache(); await load() }
@@ -115,6 +117,29 @@ struct SearchView: View {
             if let list = try? await AniClient.shared.genres() { withAnimation(.easeOut(duration: 0.3)) { genres = list } }
         }
         catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+    }
+}
+/// Picks one series when opened; "Noch mal" draws again without leaving the screen.
+private struct RandomAnimeView: View {
+    let catalog: [Anime]
+    @State private var pick: Anime?
+    var body: some View {
+        Group {
+            if let pick {
+                DetailView(anime: pick).id(pick.id)
+                    .overlay(alignment: .bottom) {
+                        Button {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            withAnimation(.easeInOut(duration: 0.3)) { self.pick = catalog.randomElement() }
+                        } label: {
+                            Label("Noch mal", systemImage: "shuffle").font(.subheadline.bold()).padding(.horizontal, 20).frame(minHeight: 48)
+                                .background(.ultraThinMaterial).clipShape(Capsule()).overlay(Capsule().stroke(Theme.stroke))
+                        }.buttonStyle(LoungePressStyle()).foregroundColor(.white).padding(.bottom, 96)
+                    }
+                    .transition(.opacity)
+            } else { Theme.background.ignoresSafeArea() }
+        }
+        .onAppear { if pick == nil { pick = catalog.randomElement() } }
     }
 }
 /// A colourful tile per genre; the colour is stable for each name.

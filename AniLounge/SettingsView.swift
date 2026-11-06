@@ -79,6 +79,7 @@ struct SettingsView: View {
     @ObservedObject private var downloads = DownloadStore.shared
     @State private var confirm: Confirmation?
     @State private var notice: String?
+    @State private var artworkBytes: Int64 = 0
     @State private var backupURL: URL?
     @State private var importing = false
     @State private var pendingImport: Data?
@@ -109,8 +110,11 @@ struct SettingsView: View {
                     SettingsButton(title: "Alle Downloads dieses Profils löschen", icon: "trash.fill", destructive: true) { confirm = .downloads }
                 }
                 SettingsSection(title: "Daten") {
-                    SettingsButton(title: "Bild-Cache leeren", icon: "photo.stack.fill") {
+                    SettingsValue(title: "Gespeicherte Bilder", icon: "photo.stack.fill",
+                                  value: ByteCountFormatter.string(fromByteCount: artworkBytes, countStyle: .file) + " von 300 MB")
+                    SettingsButton(title: "Bild-Cache leeren", icon: "trash") {
                         CoverLoader.clearCache(); URLCache.shared.removeAllCachedResponses()
+                        artworkBytes = 0
                         withAnimation { notice = "Bild-Cache geleert" }
                     }
                     SettingsButton(title: "Verlauf löschen", icon: "clock.arrow.circlepath", destructive: true) { confirm = .history }
@@ -120,8 +124,8 @@ struct SettingsView: View {
                     if let backupURL {
                         ShareLink(item: backupURL) {
                             HStack(spacing: 12) {
-                                Image(systemName: "square.and.arrow.up").font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
-                                    .frame(width: 30, height: 30).background(Theme.accent.gradient).clipShape(RoundedRectangle(cornerRadius: 8))
+                                Image(systemName: "square.and.arrow.up").font(.system(size: 16, weight: .medium)).foregroundColor(Theme.accentSoft)
+                                    .frame(width: 28, height: 28)
                                 Text("Sicherung teilen oder speichern").font(.subheadline.weight(.semibold))
                                 Spacer()
                             }.padding(.horizontal, 14).padding(.vertical, 11).contentShape(Rectangle())
@@ -136,8 +140,8 @@ struct SettingsView: View {
                 SettingsSection(title: "Hilfe") {
                     NavigationLink { DebugLogView() } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: "ladybug.fill").font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
-                                .frame(width: 30, height: 30).background(Theme.panelHigh).clipShape(RoundedRectangle(cornerRadius: 8))
+                            Image(systemName: "ladybug").font(.system(size: 16, weight: .medium)).foregroundColor(Theme.accentSoft)
+                                .frame(width: 28, height: 28)
                             Text("Diagnose-Protokoll").font(.subheadline.weight(.semibold))
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption.bold()).foregroundColor(Theme.muted)
@@ -156,6 +160,7 @@ struct SettingsView: View {
         } leading: {
             BackButton()
         }
+        .task { artworkBytes = await Task.detached(priority: .utility) { ArtworkCache.shared.diskSize }.value }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else { return }
             let scoped = url.startAccessingSecurityScopedResource()
@@ -211,8 +216,7 @@ struct SettingsSection<Content: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title.uppercased()).font(.caption.bold()).tracking(1.2).foregroundColor(Theme.muted).padding(.leading, 4)
             VStack(alignment: .leading, spacing: 0) { content }
-                .background(Theme.panel).clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.stroke))
+                .glassCard()
         }
     }
 }
@@ -220,8 +224,10 @@ private struct SettingsIcon: View {
     let name: String
     var tint: Color = Theme.accent
     var body: some View {
-        Image(systemName: name).font(.system(size: 14, weight: .semibold)).foregroundColor(.white)
-            .frame(width: 30, height: 30).background(tint.gradient).clipShape(RoundedRectangle(cornerRadius: 8))
+        // Plain, consistent symbols; colour only marks destructive rows.
+        Image(systemName: name).font(.system(size: 16, weight: .medium))
+            .foregroundColor(tint == Theme.accent || tint == Theme.panelHigh ? Theme.accentSoft : tint)
+            .frame(width: 28, height: 28)
     }
 }
 struct SettingsToggle: View {
