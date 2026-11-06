@@ -254,7 +254,6 @@ struct SavedView: View {
                         }.buttonStyle(LoungePressStyle())
                     }
                     Spacer()
-                    Text("\(library.favorites.count)").font(.footnote.bold().monospacedDigit()).foregroundColor(Theme.muted)
                 }.padding(.horizontal, 20).padding(.bottom, 8)
                 statusFilter.padding(.bottom, 12)
             }
