@@ -93,7 +93,7 @@ struct HeroCarousel: View {
             .background(alignment: .top) {
                 LinearGradient(colors: [(tint ?? Theme.panel).opacity(0.9), (tint ?? Theme.panel).opacity(0.35), .clear], startPoint: .top, endPoint: .bottom)
                     .frame(height: min(heroHeight, 520) + 340).offset(y: -170)
-                    .blur(radius: 30).allowsHitTesting(false).accessibilityHidden(true)
+                    .allowsHitTesting(false).accessibilityHidden(true)
                     .animation(.easeInOut(duration: 0.8), value: tint)
             }
             .task(id: items.indices.contains(page) ? items[page].id : "") {

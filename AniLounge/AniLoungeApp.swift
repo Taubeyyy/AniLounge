@@ -7,7 +7,10 @@ import AniCore
     @StateObject private var library = LibraryStore()
     var body: some Scene {
         WindowGroup {
-            RootView().environmentObject(library).preferredColorScheme(.dark).tint(Theme.accent).task { DownloadStore.shared.start() }
+            RootView().environmentObject(library).preferredColorScheme(.dark).tint(Theme.accent).task {
+                DownloadStore.shared.start()
+                Task.detached(priority: .background) { ArtworkCache.shared.trim() }
+            }
         }
     }
 }
@@ -183,10 +186,13 @@ struct Artwork: View {
         GeometryReader { geo in
             ZStack {
                 LinearGradient(colors: [Theme.accent.opacity(0.25), Theme.panel], startPoint: .topLeading, endPoint: .bottomTrailing)
-                if let image = loader.image {
+                // Pictures already in memory draw on the first frame, without a placeholder flash.
+                if let image = url.flatMap(ArtworkCache.shared.memoryImage) ?? loader.image {
                     Image(uiImage: image).resizable().scaledToFill().transition(.opacity)
+                } else if url == nil {
+                    Image(systemName: "photo").font(.title3).foregroundColor(.white.opacity(0.18))
                 } else {
-                    Image(systemName: "sparkles").font(.largeTitle).foregroundColor(Theme.accent.opacity(0.35))
+                    Color.clear.shimmer()
                 }
             }.frame(width: geo.size.width, height: geo.size.height).clipped()
                 .animation(.easeOut(duration: 0.3), value: loader.image != nil)
@@ -209,7 +215,6 @@ struct PosterCard: View {
                             .background(Theme.accent).clipShape(Circle()).padding(6).accessibilityLabel("In der Watchlist")
                     }
                 }
-                .shadow(color: .black.opacity(0.4), radius: 10, y: 6)
                 .contextMenu {
                     Button { library.toggleWatchlist(anime) } label: {
                         Label(saved ? "Von der Watchlist entfernen" : "Zur Watchlist", systemImage: saved ? "bookmark.slash" : "bookmark")
@@ -234,6 +239,8 @@ struct AnimeShelf: View {
                         }
                     }.padding(.horizontal, 20)
                 }
+                // Posters further along the row are fetched before the viewer swipes to them.
+                .task(id: items.count) { ArtworkCache.shared.prefetch(Array(items.compactMap(\.poster).prefix(20))) }
             }
         }
     }

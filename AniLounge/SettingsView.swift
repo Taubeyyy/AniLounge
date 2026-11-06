@@ -79,6 +79,7 @@ struct SettingsView: View {
     @ObservedObject private var downloads = DownloadStore.shared
     @State private var confirm: Confirmation?
     @State private var notice: String?
+    @State private var artworkBytes: Int64 = 0
     @State private var backupURL: URL?
     @State private var importing = false
     @State private var pendingImport: Data?
@@ -109,8 +110,11 @@ struct SettingsView: View {
                     SettingsButton(title: "Alle Downloads dieses Profils löschen", icon: "trash.fill", destructive: true) { confirm = .downloads }
                 }
                 SettingsSection(title: "Daten") {
-                    SettingsButton(title: "Bild-Cache leeren", icon: "photo.stack.fill") {
+                    SettingsValue(title: "Gespeicherte Bilder", icon: "photo.stack.fill",
+                                  value: ByteCountFormatter.string(fromByteCount: artworkBytes, countStyle: .file) + " von 300 MB")
+                    SettingsButton(title: "Bild-Cache leeren", icon: "trash") {
                         CoverLoader.clearCache(); URLCache.shared.removeAllCachedResponses()
+                        artworkBytes = 0
                         withAnimation { notice = "Bild-Cache geleert" }
                     }
                     SettingsButton(title: "Verlauf löschen", icon: "clock.arrow.circlepath", destructive: true) { confirm = .history }
@@ -156,6 +160,7 @@ struct SettingsView: View {
         } leading: {
             BackButton()
         }
+        .task { artworkBytes = await Task.detached(priority: .utility) { ArtworkCache.shared.diskSize }.value }
         .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
             guard case .success(let url) = result else { return }
             let scoped = url.startAccessingSecurityScopedResource()
