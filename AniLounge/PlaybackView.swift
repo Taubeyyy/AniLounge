@@ -106,6 +106,9 @@ final class PlayerSurfaceView: UIView {
     @Published var nextEpisodeError: String?
     @Published private(set) var caughtUp = false
     @Published var countdown: Int?
+    /// Position the episode resumed at; shown briefly with a "Von vorne" button.
+    @Published var resumedFrom: Double?
+    private var prefetchedNext = false
     /// Sleep timer: stop at the end of this episode or after a number of minutes.
     enum SleepTimer: Hashable { case off, episodeEnd, minutes(Int) }
     @Published private(set) var sleepTimer: SleepTimer = .off
@@ -357,7 +360,7 @@ final class PlayerSurfaceView: UIView {
     func play(_ episode: Episode) {
         guard !closed, episode.id != request.episode.id else { return }
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        skipTimes = nil; autoSkippedOpening = false
+        skipTimes = nil; autoSkippedOpening = false; prefetchedNext = false; resumedFrom = nil
         revealTask?.cancel(); webRevealTask?.cancel(); offerWebPlayer = false; webPlaybackSeen = false
         store.opened(episode, anime: request.anime, profileID: request.profileID)
         checkpoint(); stopNative(); loadTask?.cancel(); startupWatchdog?.cancel(); nextTask?.cancel(); cancelCountdown()
@@ -521,6 +524,7 @@ final class PlayerSurfaceView: UIView {
                         if let range = item.loadedTimeRanges.last?.timeRangeValue { self.clock.buffered = range.end.seconds }
                     }
                     self.autoSkipIfNeeded(time.seconds)
+                    self.prefetchNextIfNeeded(time.seconds)
                     if let deadline = self.sleepDeadline, Date() >= deadline { self.sleepNow() }
                 }
             }
@@ -554,6 +558,13 @@ final class PlayerSurfaceView: UIView {
         let attempt = generation
         // Avoid a redundant seek at startup; resume may land within one second of the saved position.
         playhead = position
+        if position > 5 {
+            resumedFrom = position
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 7_000_000_000)
+                if self?.resumedFrom == position { self?.resumedFrom = nil }
+            }
+        }
         if position == 0 { restoring = false; player?.playImmediately(atRate: Float(speed)); return }
         let tolerance = CMTime(seconds: 1, preferredTimescale: 600)
         player?.seek(to: CMTime(seconds: position, preferredTimescale: 600), toleranceBefore: tolerance, toleranceAfter: tolerance) { [weak self] _ in
@@ -592,6 +603,20 @@ final class PlayerSurfaceView: UIView {
         autoSkippedOpening = true
         seek(to: opening.upperBound)
         showToast("Opening übersprungen")
+    }
+    /// Near the end, warm the caches for the next episode: its hoster list, still and skip times.
+    /// Autoplay then skips those requests. (The hoster page itself still loads on start.)
+    private func prefetchNextIfNeeded(_ now: Double) {
+        guard !prefetchedNext, let next = nextEpisode, let duration = player?.currentItem?.duration.seconds,
+              duration.isFinite, duration > 120, now > max(duration * 0.85, duration - 240) else { return }
+        prefetchedNext = true
+        let extras = episodeExtras[next.number]
+        DebugLog.shared.add("player", "prefetch next episode \(next.number)")
+        Task {
+            _ = try? await AniClient.shared.hosts(path: next.path)
+            if let still = extras?.image { _ = await CoverLoader.image(for: still) }
+            if let extras { _ = await MetadataClient.shared.skipTimes(for: extras) }
+        }
     }
     func showToast(_ text: String) {
         toast = text
@@ -811,7 +836,8 @@ struct PlaybackView: View {
             .background((theater ? Color.black : Theme.background).ignoresSafeArea())
                 .toolbar(.hidden, for: .navigationBar)
                 .statusBarHidden(theater)
-                .persistentSystemOverlays(theater ? .hidden : .automatic)
+                // Nothing of iOS should sit on top of the video while watching.
+                .persistentSystemOverlays(.hidden)
                 .alert("Download", isPresented: Binding(get: { downloads.storageError != nil }, set: { if !$0 { downloads.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(downloads.storageError ?? "") }
                 .task { PlaybackCenter.shared.activate(model); await model.loadHosts() }
                 .onChange(of: phase) { if $0 != .active { model.checkpoint(); model.cancelCountdown() } }
@@ -1111,15 +1137,27 @@ struct PlayerControls: View {
     @State private var scrub: Double?
     @State private var flash: (text: String, forward: Bool)?
     @State private var flashID = UUID()
+    @State private var locked = false
+    @State private var showUnlock = false
+    @State private var hud: (icon: String, value: Double)?
+    @State private var dragBase: Double?
+    @State private var hudID = UUID()
     var body: some View {
         ZStack {
-            HStack(spacing: 0) {
-                tapZone(forward: false)
-                tapZone(forward: true)
+            VolumeHost().frame(width: 1, height: 1).opacity(0.01).allowsHitTesting(false)
+            if locked {
+                lockLayer
+            } else {
+                HStack(spacing: 0) {
+                    tapZone(forward: false)
+                    tapZone(forward: true)
+                }
+                if visible { chrome.transition(.opacity.combined(with: .scale(scale: 1.02))) }
+                SkipOverlay(model: model, clock: clock, bottom: visible ? (theater ? 96 : 58) : (theater ? 30 : 10))
+                if let from = model.resumedFrom { resumePill(from) }
             }
-            if visible { chrome.transition(.opacity) }
             if !visible && model.isBuffering { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
-            SkipOverlay(model: model, clock: clock, bottom: visible ? (theater ? 96 : 58) : (theater ? 30 : 10))
+            if let hud { hudView(hud) }
             if let flash {
                 Text(flash.text).font(.headline.bold()).padding(.horizontal, 16).padding(.vertical, 10)
                     .background(.ultraThinMaterial).clipShape(Capsule())
@@ -1134,6 +1172,8 @@ struct PlayerControls: View {
         .foregroundColor(.white)
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: visible)
         .animation(.easeInOut(duration: 0.2), value: model.toast)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: locked)
+        .animation(.easeInOut(duration: 0.25), value: model.resumedFrom)
         .onAppear { scheduleHide() }
         .onDisappear { hideTask?.cancel() }
         .onChange(of: voiceOverEnabled) { _ in visible = true; scheduleHide() }
@@ -1158,6 +1198,75 @@ struct PlayerControls: View {
                 guard !voiceOverEnabled, !interactionLocked else { return }
                 if visible { hideTask?.cancel(); withAnimation { visible = false } } else { withAnimation { visible = true }; scheduleHide() }
             }
+            // Vertical swipe: brightness on the left, volume on the right (Netflix, Crunchyroll).
+            .simultaneousGesture(DragGesture(minimumDistance: 16)
+                .onChanged { adjust($0, volume: forward) }
+                .onEnded { _ in endAdjust() })
+    }
+    private func adjust(_ value: DragGesture.Value, volume: Bool) {
+        guard !interactionLocked, abs(value.translation.height) > abs(value.translation.width) * 1.3 else { return }
+        if dragBase == nil { dragBase = volume ? Double(SystemVolume.level) : Double(UIScreen.main.brightness) }
+        let next = min(1, max(0, (dragBase ?? 0) - Double(value.translation.height) / 260))
+        if volume { SystemVolume.set(Float(next)) } else { UIScreen.main.brightness = CGFloat(next) }
+        hudID = UUID()
+        hud = (volume ? (next == 0 ? "speaker.slash.fill" : next < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.3.fill") : "sun.max.fill", next)
+    }
+    private func endAdjust() {
+        dragBase = nil
+        let id = hudID
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            if hudID == id { withAnimation(.easeOut(duration: 0.2)) { hud = nil } }
+        }
+    }
+    private func hudView(_ hud: (icon: String, value: Double)) -> some View {
+        VStack(spacing: 10) {
+            Image(systemName: hud.icon).font(.title3.weight(.semibold)).frame(height: 26)
+            GeometryReader { geo in
+                ZStack(alignment: .bottom) {
+                    Capsule().fill(.white.opacity(0.25))
+                    Capsule().fill(Color.white).frame(height: geo.size.height * CGFloat(hud.value))
+                }
+            }.frame(width: 6, height: 110)
+        }
+        .padding(.vertical, 14).padding(.horizontal, 12).background(.ultraThinMaterial).clipShape(Capsule())
+        .allowsHitTesting(false).transition(.opacity.combined(with: .scale(scale: 0.9)))
+    }
+    /// Locked: every tap only reveals the unlock hint; holding it unlocks.
+    private var lockLayer: some View {
+        ZStack {
+            Color.clear.contentShape(Rectangle()).onTapGesture {
+                withAnimation { showUnlock = true }
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    withAnimation { showUnlock = false }
+                }
+            }
+            if showUnlock {
+                Label("Zum Entsperren gedrückt halten", systemImage: "lock.fill").font(.subheadline.bold())
+                    .padding(.horizontal, 18).padding(.vertical, 12).background(.ultraThinMaterial).clipShape(Capsule())
+                    .onLongPressGesture(minimumDuration: 0.6) {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        withAnimation { locked = false; showUnlock = false; visible = true }
+                        scheduleHide()
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    .accessibilityAction(named: "Entsperren") { locked = false; visible = true }
+            }
+        }
+    }
+    private func resumePill(_ from: Double) -> some View {
+        HStack(spacing: 10) {
+            Text("Fortgesetzt bei \(EpisodeProgress.format(from))").font(.footnote.weight(.semibold)).monospacedDigit()
+            Button { model.seek(to: 0); model.resumedFrom = nil } label: {
+                Text("Von vorne").font(.footnote.bold()).padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Color.white).foregroundColor(.black).clipShape(Capsule())
+            }.buttonStyle(LoungePressStyle())
+        }
+        .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 6).background(.ultraThinMaterial).clipShape(Capsule())
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .padding(.leading, theater ? 56 : 12).padding(.bottom, visible ? (theater ? 96 : 58) : (theater ? 30 : 10))
+        .transition(.opacity.combined(with: .move(edge: .leading)))
     }
     private func scheduleHide() {
         hideTask?.cancel()
@@ -1187,6 +1296,12 @@ struct PlayerControls: View {
                         }
                     }
                     Spacer(minLength: 0)
+                    Button {
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        hideTask?.cancel()
+                        withAnimation { locked = true; visible = false }
+                    } label: { Image(systemName: "lock.open.fill").font(theater ? .title3.weight(.semibold) : .body.weight(.semibold)).frame(width: 44, height: 44) }
+                        .accessibilityLabel("Bildschirm sperren")
                     if model.pipPossible {
                         Button { model.togglePictureInPicture() } label: { Image(systemName: "pip.enter").font(theater ? .title3.weight(.semibold) : .body.weight(.semibold)).frame(width: 44, height: 44) }
                             .accessibilityLabel("Bild in Bild")
@@ -1205,6 +1320,8 @@ struct PlayerControls: View {
                     else {
                         Button { act { model.togglePlay() } } label: {
                             Image(systemName: model.isPlaying ? "pause.fill" : "play.fill").font(.system(size: theater ? 48 : 34, weight: .bold)).frame(width: 60, height: 60).contentShape(Rectangle())
+                                .id(model.isPlaying).transition(.scale(scale: 0.6).combined(with: .opacity))
+                                .animation(.spring(response: 0.28, dampingFraction: 0.6), value: model.isPlaying)
                         }.accessibilityLabel(model.isPlaying ? "Pause" : "Abspielen")
                     }
                 }.frame(width: 60, height: 60)
@@ -1450,4 +1567,27 @@ private struct LoadingPulse: View {
         }
         .accessibilityLabel("Lädt")
     }
+}
+
+/// System volume for the swipe gesture. A hidden MPVolumeView changes it and keeps the
+/// system volume HUD from covering the video.
+@MainActor enum SystemVolume {
+    static let view: MPVolumeView = {
+        let view = MPVolumeView(frame: CGRect(x: -200, y: -200, width: 10, height: 10))
+        view.alpha = 0.01
+        return view
+    }()
+    static var level: Float { AVAudioSession.sharedInstance().outputVolume }
+    static func set(_ value: Float) {
+        guard let slider = view.subviews.compactMap({ $0 as? UISlider }).first else { return }
+        slider.value = max(0, min(1, value))
+    }
+}
+private struct VolumeHost: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView(frame: .zero)
+        container.addSubview(SystemVolume.view)
+        return container
+    }
+    func updateUIView(_ view: UIView, context: Context) {}
 }

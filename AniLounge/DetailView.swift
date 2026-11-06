@@ -136,6 +136,17 @@ struct DetailView: View {
                 ActionColumn(title: "Watchlist", icon: library.contains(currentAnime) ? "checkmark" : "plus") {
                     library.toggleWatchlist(currentAnime)
                 }
+                Menu {
+                    ForEach(WatchStatus.allCases, id: \.self) { status in
+                        Button { library.setStatus(status, for: currentAnime) } label: {
+                            Label(status.label, systemImage: library.status(for: currentAnime) == status ? "checkmark" : status.symbol)
+                        }
+                    }
+                    Divider()
+                    Button { library.setStatus(nil, for: currentAnime) } label: { Label("Automatisch", systemImage: "wand.and.stars") }
+                } label: {
+                    ActionColumnLabel(title: library.status(for: currentAnime).label, icon: library.status(for: currentAnime).symbol)
+                }
                 if let trailer = extras?.trailer {
                     Link(destination: trailer) { ActionColumnLabel(title: "Trailer", icon: "play.rectangle") }.buttonStyle(LoungePressStyle())
                 }
@@ -155,11 +166,15 @@ struct DetailView: View {
                 }
             }
             tabBar
-            switch tab {
-            case .episodes: episodesSection(detail)
-            case .similar: similarSection
-            case .details: detailsSection(detail)
+            Group {
+                switch tab {
+                case .episodes: episodesSection(detail)
+                case .similar: similarSection
+                case .details: detailsSection(detail)
+                }
             }
+            .id(tab)
+            .transition(.opacity.combined(with: .offset(y: 8)))
         }.padding(.horizontal, 20).padding(.top, 14)
             // The header's colour carries on faintly behind the content.
             .background(alignment: .top) {
@@ -339,7 +354,7 @@ struct DetailView: View {
         do {
             let loaded = try await AniClient.shared.detail(path: path)
             guard !Task.isCancelled, selectedSeason == path else { return }
-            episodes = loaded.episodes; loadingEpisodes = false
+            withAnimation(.easeOut(duration: 0.3)) { episodes = loaded.episodes; loadingEpisodes = false }
             catalogs.remember(loaded, path: path, isRoot: false)
         } catch {
             guard !Task.isCancelled, selectedSeason == path else { return }
@@ -512,14 +527,27 @@ enum SimilarMatcher {
     static func key(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).filter { $0.isLetter || $0.isNumber }
     }
-    static func match(_ recommendations: [[String]], in catalog: [Anime]) -> [Anime] {
+    static func index(_ catalog: [Anime]) -> [String: Anime] {
         var index: [String: Anime] = [:]
         for anime in catalog {
             for name in [anime.title] + anime.aliases.split(separator: ",").map(String.init) {
                 let k = key(name); if k.count >= 3 && index[k] == nil { index[k] = anime }
             }
         }
+        return index
+    }
+    /// AniList names later seasons "… 2nd Season" or "… Part 2"; AniWorld lists the series once.
+    static func variants(_ name: String) -> [String] {
+        let pattern = #"(?i)[\s:\-]*(\d+(st|nd|rd|th)\s+season|season\s*\d+|part\s*\d+|cour\s*\d+|\(\d{4}\)|final season)\s*$"#
+        let stripped = name.replacingOccurrences(of: pattern, with: "", options: .regularExpression)
+        return stripped == name ? [name] : [name, stripped]
+    }
+    static func find(_ names: [String], in index: [String: Anime]) -> Anime? {
+        names.lazy.flatMap(variants).compactMap { index[key($0)] }.first
+    }
+    static func match(_ recommendations: [[String]], in catalog: [Anime]) -> [Anime] {
+        let index = index(catalog)
         var seen = Set<String>()
-        return recommendations.compactMap { names in names.lazy.compactMap { index[key($0)] }.first }.filter { seen.insert($0.id).inserted }
+        return recommendations.compactMap { find($0, in: index) }.filter { seen.insert($0.id).inserted }
     }
 }

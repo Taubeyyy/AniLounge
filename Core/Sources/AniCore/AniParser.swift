@@ -54,6 +54,18 @@ public enum AniParser {
         guard !hosts.isEmpty else { throw AniError.missingContent }
         return hosts
     }
+    /// The catalog page groups every series under genre headings.
+    public static func genres(_ html: String) throws -> [Genre] {
+        let doc = try document(html)
+        var result: [Genre] = []
+        for block in try doc.select("div.genre") {
+            let name = try block.select("h3").first()?.text().trimmingCharacters(in: .whitespaces) ?? ""
+            let items = try cards(block, selector: "a[href*='/anime/stream/']", rootOnly: true)
+            if !name.isEmpty, !items.isEmpty { result.append(Genre(name: name, anime: items)) }
+        }
+        guard !result.isEmpty else { throw AniError.missingContent }
+        return result
+    }
     public static func catalog(_ html: String) throws -> [Anime] {
         let doc = try document(html)
         let result = try cards(doc, selector: "a[href*='/anime/stream/']", rootOnly: true)

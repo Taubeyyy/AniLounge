@@ -11,8 +11,10 @@ struct HomeView: View {
             LazyVStack(alignment: .leading, spacing: 30) {
                 // The stage comes first, like streaming apps; personal rows follow and stay
                 // available even when the online feed has never loaded.
-                if let feed { HeroCarousel(items: Array((feed.featured.isEmpty ? feed.popular : feed.featured).prefix(6))) }
+                if let feed { HeroCarousel(items: Array((feed.featured.isEmpty ? feed.popular : feed.featured).prefix(6))).transition(.opacity) }
+                NewEpisodesShelf()
                 ContinueWatchingShelf()
+                TodaySimulcastShelf()
                 RecentShelf()
                 if feed == nil { AnimeShelf(title: "Meine Liste", items: library.favorites) }
                 if let feed {
@@ -30,11 +32,23 @@ struct HomeView: View {
         } leading: {
             LoungeLogo()
         } trailing: {
-            NavigationLink { ProfileView() } label: { CircleIcon(systemName: library.profile.avatar) }
-                .accessibilityLabel("Profil: \(library.profile.name)")
+            HStack(spacing: 10) {
+                NavigationLink { CalendarView() } label: { CircleIcon(systemName: "calendar") }.accessibilityLabel("Simulcast-Kalender")
+                NavigationLink { ProfileView() } label: { CircleIcon(systemName: library.profile.avatar) }
+                    .accessibilityLabel("Profil: \(library.profile.name)")
+            }
         }
         .task { if feed == nil { await load() } }
-        .task(id: library.profile.id) { await SeriesCatalogStore.shared.refreshContinuations(library.active) }
+        .task(id: library.profile.id) {
+            await SeriesCatalogStore.shared.refreshContinuations(library.active)
+            NewEpisodeTracker.shared.evaluate(profile: library.active, catalogs: SeriesCatalogStore.shared.catalogs)
+        }
+        .onReceive(SeriesCatalogStore.shared.$catalogs) { NewEpisodeTracker.shared.evaluate(profile: library.active, catalogs: $0) }
+        .task { await SimulcastStore.shared.load() }
+        .onChange(of: library.active.continuationCandidates.first?.anime.id) { _ in
+            QuickActions.refresh(continueTitle: library.active.continuationCandidates.first?.anime.title)
+        }
+        .onAppear { QuickActions.refresh(continueTitle: library.active.continuationCandidates.first?.anime.title) }
         .refreshable {
             await AniClient.shared.clearCache()
             await load()
@@ -45,7 +59,10 @@ struct HomeView: View {
         guard !loading else { return }
         loading = true; error = nil
         defer { loading = false }
-        do { feed = try await AniClient.shared.home() }
+        do {
+            let loaded = try await AniClient.shared.home()
+            withAnimation(.easeOut(duration: 0.4)) { feed = loaded }
+        }
         catch { if !Task.isCancelled { self.error = error.localizedDescription } }
     }
 }
@@ -171,9 +188,12 @@ struct RecentShelf: View {
 struct ContinueWatchingShelf: View {
     @EnvironmentObject private var library: LibraryStore
     @ObservedObject private var catalogs = SeriesCatalogStore.shared
+    @ObservedObject private var tracker = NewEpisodeTracker.shared
     private var items: [EpisodeProgress] {
         library.active.continuationCandidates.filter {
-            SeriesPlaybackState.start(anime: $0.anime, profile: library.active, catalog: catalogs.catalogs[$0.anime.id]) != .caughtUp
+            let decision = SeriesPlaybackState.start(anime: $0.anime, profile: library.active, catalog: catalogs.catalogs[$0.anime.id])
+            // New episodes have their own row above.
+            return decision != .caughtUp && !tracker.isNew($0.anime, decision: decision)
         }
     }
     var body: some View {

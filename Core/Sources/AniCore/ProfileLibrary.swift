@@ -34,6 +34,26 @@ public struct EpisodeProgress: Identifiable, Codable, Equatable, Sendable {
         return value >= 3600 ? String(format: "%d:%02d:%02d", value / 3600, value / 60 % 60, value % 60) : String(format: "%d:%02d", value / 60, value % 60)
     }
 }
+/// Personal list status, like AniList's lists.
+public enum WatchStatus: String, Codable, CaseIterable, Sendable {
+    case planned, watching, paused, completed
+    public var label: String {
+        switch self {
+        case .planned: return "Geplant"
+        case .watching: return "Schaue ich"
+        case .paused: return "Pausiert"
+        case .completed: return "Fertig"
+        }
+    }
+    public var symbol: String {
+        switch self {
+        case .planned: return "bookmark"
+        case .watching: return "play.circle"
+        case .paused: return "pause.circle"
+        case .completed: return "checkmark.circle"
+        }
+    }
+}
 public struct ProfileLibrary: Codable, Sendable {
     public var profile: UserProfile
     public var favorites: [Anime] = []
@@ -41,8 +61,10 @@ public struct ProfileLibrary: Codable, Sendable {
     public var watched: Set<String> = []
     public var progress: [String: EpisodeProgress] = [:]
     public var hiddenContinueWatching: Set<String> = []
+    /// Statuses the viewer set by hand; everything else is derived from progress.
+    public var watchStatus: [String: WatchStatus] = [:]
     public init(profile: UserProfile = UserProfile()) { self.profile = profile }
-    private enum CodingKeys: String, CodingKey { case profile, favorites, history, watched, progress, hiddenContinueWatching }
+    private enum CodingKeys: String, CodingKey { case profile, favorites, history, watched, progress, hiddenContinueWatching, watchStatus }
     public init(from decoder: Decoder) throws {
         let data = try decoder.container(keyedBy: CodingKeys.self)
         profile = try data.decode(UserProfile.self, forKey: .profile)
@@ -52,7 +74,14 @@ public struct ProfileLibrary: Codable, Sendable {
         progress = try data.decode([String: EpisodeProgress].self, forKey: .progress)
         // Additive v2 field: old installations keep every existing position and watched mark.
         hiddenContinueWatching = try data.decodeIfPresent(Set<String>.self, forKey: .hiddenContinueWatching) ?? []
+        watchStatus = try data.decodeIfPresent([String: WatchStatus].self, forKey: .watchStatus) ?? [:]
     }
+    public func status(for anime: Anime) -> WatchStatus {
+        if let manual = watchStatus[anime.id] { return manual }
+        return progress.values.contains { $0.anime.id == anime.id } ? .watching : .planned
+    }
+    /// nil returns to the automatic status.
+    public mutating func setStatus(_ status: WatchStatus?, for anime: Anime) { watchStatus[anime.id] = status }
     public mutating func hideContinueWatching(_ anime: Anime) { hiddenContinueWatching.insert(anime.id) }
     public mutating func revealContinueWatching(_ anime: Anime) { hiddenContinueWatching.remove(anime.id) }
     /// Also includes finished series so a known next episode can be offered.

@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import AniCore
 
 @main struct AniLoungeApp: App {
@@ -13,7 +14,10 @@ import AniCore
 struct RootView: View {
     @EnvironmentObject private var library: LibraryStore
     @ObservedObject private var playback = PlaybackCenter.shared
+    @ObservedObject private var quickActions = QuickActions.shared
+    @ObservedObject private var catalogs = SeriesCatalogStore.shared
     @State private var selected = 0
+    @State private var showingCalendar = false
     private let tabs = [("Start", "house.fill"), ("Suche", "magnifyingglass"), ("Watchlist", "bookmark.fill"), ("Downloads", "arrow.down.circle.fill"), ("Profil", "person.crop.circle.fill")]
     var body: some View {
         TabView(selection: $selected) {
@@ -38,7 +42,28 @@ struct RootView: View {
             } message: { prompt in
                 Text("Die gespeicherte Fassung (\(prompt.option.language ?? "Sprache unbekannt")) entspricht nicht deiner bevorzugten Sprache. Möchtest du sie trotzdem ansehen?")
             }
+        .onReceive(quickActions.$pending.compactMap { $0 }) { handle($0) }
+        .sheet(isPresented: $showingCalendar) { NavigationStack { CalendarView() }.preferredColorScheme(.dark) }
         .alert("Speichern nicht möglich", isPresented: Binding(get: { library.storageError != nil }, set: { if !$0 { library.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(library.storageError ?? "") }
+    }
+}
+extension RootView {
+    /// Home screen quick action: continue the newest series, open the calendar or search.
+    func handle(_ action: String) {
+        quickActions.pending = nil
+        switch action {
+        case QuickActions.continueType:
+            for item in library.active.continuationCandidates {
+                if let episode = SeriesPlaybackState.start(anime: item.anime, profile: library.active, catalog: catalogs.catalogs[item.anime.id]).episode {
+                    PlaybackCenter.shared.open(PlaybackRequest(anime: item.anime, episode: episode, profileID: library.profile.id), library: library)
+                    return
+                }
+            }
+            selected = 0
+        case QuickActions.calendarType: showingCalendar = true
+        case QuickActions.searchType: selected = 1
+        default: break
+        }
     }
 }
 struct LoungeTabBar: View {
@@ -56,6 +81,8 @@ struct LoungeTabBar: View {
                 } label: {
                     VStack(spacing: 4) {
                         Image(systemName: tabs[index].1).font(.system(size: 19, weight: .semibold))
+                            .scaleEffect(selected == index && !reduceMotion ? 1.12 : 1)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.5), value: selected)
                         Text(tabs[index].0).font(.caption2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
                     }.frame(maxWidth: .infinity).padding(.vertical, 10)
                         .foregroundColor(selected == index ? .white : Theme.muted)

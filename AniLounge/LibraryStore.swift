@@ -66,6 +66,16 @@ import AniCore
               imported.profiles.contains(where: { $0.profile.id == imported.activeProfileID }) else { throw LibraryError.unreadable }
         change { $0 = imported }
     }
+    func status(for anime: Anime) -> WatchStatus { active.status(for: anime) }
+    /// Sets a list status (nil = automatic) and keeps the series on the watchlist.
+    func setStatus(_ status: WatchStatus?, for anime: Anime) {
+        change { $0.update(profile.id) { library in
+            library.setStatus(status, for: anime)
+            if status != nil, !library.favorites.contains(where: { $0.id == anime.id }) { library.toggleFavorite(anime) }
+        } }
+        UISelectionFeedbackGenerator().selectionChanged()
+        ToastCenter.shared.show(status.map { "Status: \($0.label)" } ?? "Status automatisch", icon: status?.symbol ?? "wand.and.stars")
+    }
     func setWatched(_ value: Bool, episode: Episode, anime: Anime) {
         change { try $0.update(profile.id) { try $0.setWatched(value, episode: episode, anime: anime) } }
     }

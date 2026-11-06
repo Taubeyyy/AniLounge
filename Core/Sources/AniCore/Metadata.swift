@@ -42,6 +42,15 @@ public struct SkipTimes: Sendable, Equatable {
         return abs(duration - episodeLength) <= 45
     }
 }
+/// One upcoming or recent broadcast from AniList's airing schedule.
+public struct AiringEntry: Identifiable, Hashable, Sendable {
+    public var id: String { "\(anilistID)#\(episode)" }
+    public let anilistID: Int
+    public let episode: Int
+    public let airingAt: Date
+    /// Romaji, English and synonyms, for matching against the AniWorld catalog.
+    public let titles: [String]
+}
 struct AniZipEpisode: Sendable {
     let season: Int?
     let number: Int?
@@ -144,6 +153,18 @@ public enum MetadataParser {
         guard opening != nil || ending != nil || recap != nil else { return nil }
         return SkipTimes(opening: opening, ending: ending, episodeLength: length, recap: recap)
     }
+    public static func airing(fromAniList data: Data) throws -> (entries: [AiringEntry], hasNextPage: Bool) {
+        guard let page = (try object(data)["data"] as? [String: Any])?["Page"] as? [String: Any] else { throw AniError.missingContent }
+        let more = (page["pageInfo"] as? [String: Any])?["hasNextPage"] as? Bool ?? false
+        let entries: [AiringEntry] = ((page["airingSchedules"] as? [[String: Any]]) ?? []).compactMap { item in
+            guard let episode = item["episode"] as? Int, let at = item["airingAt"] as? Int,
+                  let media = item["media"] as? [String: Any], let id = media["id"] as? Int, media["isAdult"] as? Bool != true else { return nil }
+            let title = media["title"] as? [String: Any]
+            let names = [title?["romaji"], title?["english"]].compactMap { $0 as? String } + ((media["synonyms"] as? [String]) ?? [])
+            return names.isEmpty ? nil : AiringEntry(anilistID: id, episode: episode, airingAt: Date(timeIntervalSince1970: TimeInterval(at)), titles: names)
+        }
+        return (entries, more)
+    }
     /// AniWorld's IMDb link, e.g. `tt0388629`.
     public static func validIMDb(_ value: String) -> String? {
         let clean = value.trimmingCharacters(in: .whitespaces)
@@ -162,6 +183,27 @@ public actor MetadataClient {
     /// AniList relations rarely change; remembering them keeps later seasons fast and spares the rate limit.
     private var sequels: [Int: Int] = [:]
     private var extras: [Int: AnimeExtras] = [:]
+    private var airing: (loaded: Date, entries: [AiringEntry])?
+    /// Broadcasts from yesterday to six days ahead, cached for half an hour.
+    public func airingWeek(now: Date = Date()) async throws -> [AiringEntry] {
+        if let airing, now.timeIntervalSince(airing.loaded) < 1800 { return airing.entries }
+        let start = Int(now.timeIntervalSince1970) - 86_400, end = Int(now.timeIntervalSince1970) + 6 * 86_400
+        let query = "query($s:Int,$e:Int,$p:Int){Page(page:$p,perPage:50){pageInfo{hasNextPage} airingSchedules(airingAt_greater:$s,airingAt_lesser:$e,sort:TIME){episode airingAt media{id isAdult title{romaji english} synonyms}}}}"
+        guard let url = URL(string: "https://graphql.anilist.co") else { throw AniError.invalidURL }
+        var all: [AiringEntry] = []
+        for page in 1...5 {
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query, "variables": ["s": start, "e": end, "p": page]])
+            let result = try MetadataParser.airing(fromAniList: try await fetch(request))
+            all += result.entries
+            if !result.hasNextPage { break }
+        }
+        airing = (now, all)
+        return all
+    }
     private var seasons: [String: [String: EpisodeExtras]] = [:]
     private var skips: [String: SkipTimes?] = [:]
     public init(defaults: UserDefaults = .standard) {

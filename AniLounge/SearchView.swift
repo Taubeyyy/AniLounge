@@ -10,6 +10,7 @@ struct SearchView: View {
     @AppStorage("search.recent") private var recentStore = ""
     @FocusState private var focused: Bool
     @State private var surprise: Anime?
+    @State private var genres: [Genre] = []
     private var recent: [String] { recentStore.split(separator: "\n").map(String.init) }
     private func remember(_ term: String) {
         let clean = term.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -61,6 +62,16 @@ struct SearchView: View {
                         }
                     }.padding(.top, 4)
                 }
+                if query.isEmpty && !genres.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Genres").font(.title3.weight(.bold)).padding(.top, 8)
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 10)], spacing: 10) {
+                            ForEach(genres) { genre in
+                                NavigationLink { GenreView(genre: genre) } label: { GenreTile(genre: genre) }.buttonStyle(LoungePressStyle())
+                            }
+                        }
+                    }.transition(.opacity)
+                }
                 if let error { ProblemView(message: error) { Task { await load() } } }
                 else if loading {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 150 : 104), spacing: 12)], spacing: 18) {
@@ -98,8 +109,58 @@ struct SearchView: View {
         guard !loading else { return }
         loading = true; error = nil
         defer { loading = false }
-        do { catalog = try await AniClient.shared.catalog() }
+        do {
+            let loaded = try await AniClient.shared.catalog()
+            withAnimation(.easeOut(duration: 0.3)) { catalog = loaded }
+            if let list = try? await AniClient.shared.genres() { withAnimation(.easeOut(duration: 0.3)) { genres = list } }
+        }
         catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+    }
+}
+/// A colourful tile per genre; the colour is stable for each name.
+private struct GenreTile: View {
+    let genre: Genre
+    private var hue: Double { Double(genre.name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF }) / 65_535 }
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            LinearGradient(colors: [Color(hue: hue, saturation: 0.55, brightness: 0.5), Color(hue: hue, saturation: 0.7, brightness: 0.22)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            AnimeArtwork(anime: genre.anime[0]).frame(width: 54, height: 80).clipShape(RoundedRectangle(cornerRadius: 6))
+                .rotationEffect(.degrees(14)).offset(x: 14, y: 10).shadow(radius: 6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(GenreView.title(genre.name)).font(.subheadline.weight(.bold)).lineLimit(2)
+                Text("\(genre.anime.count) Anime").font(.caption2).opacity(0.75)
+            }.padding(12)
+        }
+        .frame(height: 86).clipShape(RoundedRectangle(cornerRadius: 14)).foregroundColor(.white)
+        .accessibilityElement(children: .combine)
+    }
+}
+struct GenreView: View {
+    let genre: Genre
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// AniWorld lists subtitle versions as genres; give them readable names.
+    static func title(_ name: String) -> String {
+        switch name {
+        case "GerSub": return "Mit deutschen Untertiteln"
+        case "EngSub": return "Mit englischen Untertiteln"
+        default: return name
+        }
+    }
+    var body: some View {
+        LoungeScroll(title: Self.title(genre.name), largeTitle: true) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("\(genre.anime.count) Anime").font(.footnote.weight(.semibold)).foregroundColor(Theme.muted)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 150 : 104), spacing: 12, alignment: .top)], spacing: 18) {
+                    ForEach(genre.anime) { anime in
+                        NavigationLink { DetailView(anime: anime) } label: { GridPoster(anime: anime) }.buttonStyle(LoungePressStyle())
+                    }
+                }
+            }.padding(.horizontal, 20)
+        } leading: {
+            BackButton()
+        }
     }
 }
 /// Poster that sizes itself to its grid column.
@@ -125,8 +186,36 @@ struct SavedView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @EnvironmentObject private var library: LibraryStore
     @AppStorage("watchlist.sort") private var sortByTitle = false
+    @State private var filter: WatchStatus?
     private var items: [Anime] {
-        sortByTitle ? library.favorites.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } : library.favorites
+        let all = sortByTitle ? library.favorites.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending } : library.favorites
+        guard let filter else { return all }
+        return all.filter { library.status(for: $0) == filter }
+    }
+    private func count(_ status: WatchStatus?) -> Int {
+        guard let status else { return library.favorites.count }
+        return library.favorites.filter { library.status(for: $0) == status }.count
+    }
+    private var statusFilter: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach([nil] + WatchStatus.allCases.map(Optional.some), id: \.self) { status in
+                    let active = filter == status
+                    Button {
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { filter = status }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(status?.label ?? "Alle")
+                            Text("\(count(status))").monospacedDigit().opacity(0.6)
+                        }.font(.footnote.bold()).padding(.horizontal, 14).frame(minHeight: 40)
+                            .background(active ? AnyShapeStyle(Theme.accentGradient) : AnyShapeStyle(Theme.panel))
+                            .foregroundColor(.white).clipShape(Capsule())
+                            .overlay(Capsule().stroke(active ? .clear : Theme.stroke))
+                    }.buttonStyle(LoungePressStyle())
+                }
+            }.padding(.horizontal, 20)
+        }
     }
     var body: some View {
         LoungeScroll(title: "Watchlist", largeTitle: true) {
@@ -141,7 +230,8 @@ struct SavedView: View {
                     }
                     Spacer()
                     Text("\(library.favorites.count)").font(.footnote.bold().monospacedDigit()).foregroundColor(Theme.muted)
-                }.padding(.horizontal, 20).padding(.bottom, 12)
+                }.padding(.horizontal, 20).padding(.bottom, 8)
+                statusFilter.padding(.bottom, 12)
             }
             if library.favorites.isEmpty {
                 VStack(spacing: 16) {
@@ -154,7 +244,16 @@ struct SavedView: View {
                     ForEach(items) { anime in
                         NavigationLink { DetailView(anime: anime) } label: { GridPoster(anime: anime) }
                             .buttonStyle(LoungePressStyle())
-                            .contextMenu { Button(role: .destructive) { library.toggleWatchlist(anime) } label: { Label("Aus Liste entfernen", systemImage: "bookmark.slash") } }
+                            .contextMenu {
+                                ForEach(WatchStatus.allCases, id: \.self) { status in
+                                    Button { library.setStatus(status, for: anime) } label: {
+                                        Label(status.label, systemImage: library.status(for: anime) == status ? "checkmark" : status.symbol)
+                                    }
+                                }
+                                Divider()
+                                Button(role: .destructive) { library.toggleWatchlist(anime) } label: { Label("Aus Liste entfernen", systemImage: "bookmark.slash") }
+                            }
+                            .transition(.opacity.combined(with: .scale(scale: 0.95)))
                     }
                 }.padding(.horizontal, 20).padding(.top, 6)
             }
