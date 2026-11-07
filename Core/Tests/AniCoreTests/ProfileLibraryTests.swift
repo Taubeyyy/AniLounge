@@ -65,8 +65,8 @@ final class ProfileLibraryTests: XCTestCase {
     func testHidingSurvivesRelaunchWithoutChangingProgressOrWatchedState() throws {
         var snapshot = LibrarySnapshot()
         try snapshot.update(snapshot.activeProfileID) {
-            try $0.saveProgress(episode, anime: anime, seconds: 750, duration: 1440, completed: false)
             $0.toggleFavorite(anime)
+            try $0.saveProgress(episode, anime: anime, seconds: 750, duration: 1440, completed: false)
             $0.hideContinueWatching(anime)
         }
         let persistence = LibraryPersistence(defaults: defaults)
