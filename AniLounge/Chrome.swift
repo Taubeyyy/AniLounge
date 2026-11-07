@@ -39,7 +39,7 @@ struct LoungeScroll<Content: View, Leading: View, Trailing: View>: View {
                     GeometryReader { Color.clear.preference(key: ScrollOffsetKey.self, value: -$0.frame(in: .named("lounge.scroll")).minY) }.frame(height: 0)
                     if !underBar { Color.clear.frame(height: 50) }
                     if largeTitle {
-                        Text(title).font(.system(.largeTitle, design: .rounded).weight(.heavy)).padding(.horizontal, 20).padding(.bottom, 10)
+                        Text(title).font(.largeTitle.weight(.heavy)).tracking(-0.8).padding(.horizontal, 20).padding(.bottom, 10)
                             .accessibilityAddTraits(.isHeader)
                     }
                     content

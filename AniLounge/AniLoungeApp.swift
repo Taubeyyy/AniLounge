@@ -25,7 +25,13 @@ struct RootView: View {
     @State private var openProfileAfterDismiss = false
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var launching = true
-    private let tabs = [("Start", "house.fill"), ("Suche", "magnifyingglass"), ("Watchlist", "bookmark.fill"), ("Downloads", "arrow.down.circle.fill"), ("Profil", "person.crop.circle.fill")]
+    private let tabs: [LoungeTab] = [
+        LoungeTab(title: "Start", icon: "house", selectedIcon: "house.fill"),
+        LoungeTab(title: "Suche", icon: "magnifyingglass", selectedIcon: "magnifyingglass"),
+        LoungeTab(title: "Watchlist", icon: "bookmark", selectedIcon: "bookmark.fill"),
+        LoungeTab(title: "Downloads", icon: "arrow.down.circle", selectedIcon: "arrow.down.circle.fill"),
+        LoungeTab(title: "Profil", icon: "person.crop.circle", selectedIcon: "person.crop.circle.fill")
+    ]
     var body: some View {
         TabView(selection: $selected) {
             NavigationStack { HomeView(onOpenProfileSummary: { showingProfileSummary = true }) }.tag(0)
@@ -87,40 +93,56 @@ extension RootView {
         }
     }
 }
+struct LoungeTab {
+    let title: String
+    let icon: String
+    let selectedIcon: String
+}
+/// Full-width translucent bar like the big streaming apps: outline symbols, the selected tab
+/// filled and white, a short accent line gliding to it.
 struct LoungeTabBar: View {
-    let tabs: [(String, String)]
+    let tabs: [LoungeTab]
     @Binding var selected: Int
-    @Namespace private var pill
+    @Namespace private var marker
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             ForEach(0..<tabs.count, id: \.self) { index in
+                let active = selected == index
                 Button {
-                    guard selected != index else { return }
+                    guard !active else { return }
                     UISelectionFeedbackGenerator().selectionChanged()
-                    withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.82)) { selected = index }
+                    withAnimation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.86)) { selected = index }
                 } label: {
-                    VStack(spacing: 4) {
-                        Image(systemName: tabs[index].1).font(.system(size: 19, weight: .semibold))
-                            .scaleEffect(selected == index && !reduceMotion ? 1.12 : 1)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.5), value: selected)
-                        Text(tabs[index].0).font(.caption2.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
-                    }.frame(maxWidth: .infinity).padding(.vertical, 10)
-                        .foregroundColor(selected == index ? .white : Theme.muted)
-                        .background {
-                            if selected == index {
-                                RoundedRectangle(cornerRadius: 18).fill(Theme.accent.opacity(0.28))
-                                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent.opacity(0.45), lineWidth: 0.5))
-                                    .matchedGeometryEffect(id: "pill", in: pill)
+                    VStack(spacing: 5) {
+                        ZStack {
+                            if active {
+                                Capsule().fill(Theme.accent).frame(width: 20, height: 3)
+                                    .matchedGeometryEffect(id: "marker", in: marker)
                             }
-                        }
-                }.buttonStyle(LoungePressStyle()).accessibilityAddTraits(selected == index ? .isSelected : [])
+                        }.frame(height: 3)
+                        Image(systemName: active ? tabs[index].selectedIcon : tabs[index].icon)
+                            .font(.system(size: 20, weight: active ? .semibold : .regular)).frame(height: 24)
+                        Text(tabs[index].title).font(.system(size: 10, weight: active ? .semibold : .medium))
+                            .lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                    .frame(maxWidth: .infinity).padding(.bottom, 4)
+                    .foregroundColor(active ? .white : .white.opacity(0.5))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(LoungePressStyle())
+                .accessibilityLabel(tabs[index].title)
+                .accessibilityAddTraits(active ? .isSelected : [])
             }
-        }.padding(6).background(.ultraThinMaterial).clipShape(RoundedRectangle(cornerRadius: 24))
-            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.stroke))
-            .shadow(color: .black.opacity(0.45), radius: 20, y: 8)
-            .padding(.horizontal, 16).padding(.top, 6).padding(.bottom, 4)
-            .background(LinearGradient(colors: [Theme.background.opacity(0), Theme.background], startPoint: .top, endPoint: .center).ignoresSafeArea())
+        }
+        .padding(.horizontal, 6)
+        .background {
+            ZStack(alignment: .top) {
+                Rectangle().fill(.ultraThinMaterial)
+                Theme.background.opacity(0.72)
+                Rectangle().fill(Color.white.opacity(0.08)).frame(height: 0.5)
+            }.ignoresSafeArea(edges: .bottom)
+        }
     }
 }
 struct LoungePressStyle: ButtonStyle {
@@ -168,16 +190,16 @@ struct SectionHeader: View {
     var subtitle: String? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.title3.weight(.bold))
+            Text(title).font(.title3.weight(.heavy)).tracking(-0.3)
             if let subtitle { Text(subtitle).font(.caption).foregroundColor(Theme.muted) }
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20).accessibilityAddTraits(.isHeader)
     }
 }
 struct PosterSkeleton: View {
-    var width: CGFloat = 132
+    var width: CGFloat = 112
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            RoundedRectangle(cornerRadius: 12).fill(Theme.panel).frame(width: width, height: width * 1.5)
+            RoundedRectangle(cornerRadius: Theme.posterRadius).fill(Theme.panel).frame(width: width, height: width * 1.5)
             RoundedRectangle(cornerRadius: 4).fill(Theme.panel).frame(width: width * 0.8, height: 12)
         }.shimmer()
     }
@@ -185,7 +207,7 @@ struct PosterSkeleton: View {
 struct HomeSkeleton: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
-            Rectangle().fill(Theme.panel).frame(height: 450).shimmer()
+            RoundedRectangle(cornerRadius: 20).fill(Theme.panel).frame(height: 360).padding(.horizontal, 20).shimmer()
             ForEach(0..<2, id: \.self) { _ in
                 VStack(alignment: .leading, spacing: 14) {
                     RoundedRectangle(cornerRadius: 4).fill(Theme.panel).frame(width: 160, height: 18).padding(.horizontal, 20)
@@ -196,9 +218,13 @@ struct HomeSkeleton: View {
     }
 }
 enum Theme {
-    static let background = Color(red: 0.045, green: 0.04, blue: 0.065)
-    static let panel = Color(red: 0.105, green: 0.09, blue: 0.14)
-    static let panelHigh = Color(red: 0.155, green: 0.13, blue: 0.205)
+    // Neutral near-black like Netflix and Crunchyroll: the artwork brings the colour.
+    static let background = Color(red: 0.035, green: 0.035, blue: 0.045)
+    static let panel = Color(red: 0.095, green: 0.095, blue: 0.115)
+    static let panelHigh = Color(red: 0.15, green: 0.15, blue: 0.18)
+    /// Corner radii: small on artwork (cinematic), larger on controls and sheets.
+    static let posterRadius: CGFloat = 6
+    static let tileRadius: CGFloat = 8
     static let accent = Color(red: 0.66, green: 0.38, blue: 0.96)
     static let accentSoft = Color(red: 0.80, green: 0.64, blue: 1.0)
     static let muted = Color.white.opacity(0.70)
@@ -212,7 +238,7 @@ struct Artwork: View {
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                LinearGradient(colors: [Theme.accent.opacity(0.25), Theme.panel], startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(colors: [Theme.panelHigh, Theme.panel], startPoint: .topLeading, endPoint: .bottomTrailing)
                 // Pictures already in memory draw on the first frame, without a placeholder flash.
                 if let image = url.flatMap({ ArtworkCache.shared.memoryImage($0) }) ?? loader.image(for: url) {
                     Image(uiImage: image).resizable().scaledToFill()
@@ -229,18 +255,18 @@ struct Artwork: View {
 }
 struct PosterCard: View {
     let anime: Anime
-    var width: CGFloat = 132
+    var width: CGFloat = 112
     @EnvironmentObject private var library: LibraryStore
     private var saved: Bool { library.contains(anime) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             AnimeArtwork(anime: anime).frame(width: width, height: width * 1.5)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.stroke))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.posterRadius))
+                .overlay(RoundedRectangle(cornerRadius: Theme.posterRadius).stroke(Theme.stroke))
                 .overlay(alignment: .topTrailing) {
                     if saved {
-                        Image(systemName: "bookmark.fill").font(.caption2.bold()).padding(6)
-                            .background(Theme.accent).clipShape(Circle()).padding(6).accessibilityLabel("In der Watchlist")
+                        Image(systemName: "bookmark.fill").font(.system(size: 9, weight: .bold)).padding(5)
+                            .background(Theme.accent).clipShape(Circle()).padding(5).accessibilityLabel("In der Watchlist")
                     }
                 }
                 .contextMenu {
@@ -249,7 +275,8 @@ struct PosterCard: View {
                     }
                     if let url = AniURL.page(anime.path) { ShareLink(item: url) { Label("Teilen", systemImage: "square.and.arrow.up") } }
                 }
-            Text(anime.title).font(.caption.weight(.semibold)).lineLimit(3).fixedSize(horizontal: false, vertical: true)
+            Text(anime.title).font(.caption.weight(.medium)).foregroundColor(.white.opacity(0.82))
+                .lineLimit(2).fixedSize(horizontal: false, vertical: true)
         }.frame(width: width).foregroundColor(.white)
     }
 }
@@ -258,10 +285,18 @@ struct AnimeShelf: View {
     let items: [Anime]
     var body: some View {
         if !items.isEmpty {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
                 SectionHeader(title: title)
+                    .overlay(alignment: .trailing) {
+                        if items.count > 6 {
+                            NavigationLink { ShelfGridView(title: title, items: items) } label: {
+                                HStack(spacing: 3) { Text("Alle"); Image(systemName: "chevron.right").font(.caption.weight(.bold)) }
+                                    .font(.subheadline.weight(.semibold)).foregroundColor(Theme.muted).frame(minHeight: 44)
+                            }.padding(.trailing, 20).accessibilityLabel("Alle aus \(title)")
+                        }
+                    }
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 12) {
+                    LazyHStack(alignment: .top, spacing: 8) {
                         ForEach(items) { anime in
                             NavigationLink { DetailView(anime: anime) } label: { PosterCard(anime: anime) }.buttonStyle(LoungePressStyle())
                         }
@@ -287,14 +322,14 @@ struct TopTenShelf: View {
                             NavigationLink { DetailView(anime: anime) } label: {
                                 HStack(alignment: .bottom, spacing: -22) {
                                     Text("\(index + 1)")
-                                        .font(.system(size: 104, weight: .black, design: .rounded)).monospacedDigit()
+                                        .font(.system(size: 104, weight: .black)).monospacedDigit().tracking(-4)
                                         .foregroundStyle(LinearGradient(colors: [.white.opacity(0.85), .white.opacity(0.15)], startPoint: .top, endPoint: .bottom))
                                         .shadow(color: .black.opacity(0.6), radius: 1, x: 2, y: 0)
                                         .frame(minWidth: 52, alignment: .trailing).offset(y: 14)
                                         .accessibilityHidden(true)
                                     AnimeArtwork(anime: anime).frame(width: 104, height: 156)
-                                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.stroke))
+                                        .clipShape(RoundedRectangle(cornerRadius: Theme.posterRadius))
+                                        .overlay(RoundedRectangle(cornerRadius: Theme.posterRadius).stroke(Theme.stroke))
                                         .shadow(color: .black.opacity(0.5), radius: 8, x: -4)
                                 }
                             }.buttonStyle(LoungePressStyle()).accessibilityLabel("Platz \(index + 1): \(anime.title)")
@@ -302,6 +337,23 @@ struct TopTenShelf: View {
                     }.padding(.horizontal, 20)
                 }
             }
+        }
+    }
+}
+/// A whole shelf as a grid, opened from its "Alle" link.
+struct ShelfGridView: View {
+    let title: String
+    let items: [Anime]
+    var body: some View {
+        LoungeScroll(title: title, largeTitle: true) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 10, alignment: .top)], spacing: 16) {
+                ForEach(items) { anime in
+                    NavigationLink { DetailView(anime: anime) } label: { PosterCard(anime: anime, width: 104) }
+                        .buttonStyle(LoungePressStyle())
+                }
+            }.padding(.horizontal, 20)
+        } leading: {
+            BackButton()
         }
     }
 }

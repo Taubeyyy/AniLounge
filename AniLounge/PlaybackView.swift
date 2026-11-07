@@ -590,6 +590,14 @@ final class PlayerSurfaceView: UIView {
         } else { player.pause(); checkpoint() }
         updateNowPlaying()
     }
+    /// Bar button: 1x → 1.25x → 1.5x → 2x → 0.75x → 1x, with a short confirmation.
+    func cycleSpeed() {
+        let speeds = AppSettings.speeds
+        let index = speeds.firstIndex(of: speed) ?? speeds.firstIndex(of: 1) ?? 0
+        let next = speeds[(index + 1) % speeds.count]
+        setSpeed(next)
+        showToast("Tempo " + (next == 1 ? "1x" : AppSettings.speedLabel(next)))
+    }
     func setSpeed(_ value: Double) {
         speed = value; AppSettings.shared.speed = value
         player?.defaultRate = Float(value)
@@ -666,6 +674,11 @@ final class PlayerSurfaceView: UIView {
         }
         remoteTargets = []
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+    /// AniWorld often names an episode just "Folge 3"; the metadata title reads better then.
+    func displayTitle(of episode: Episode) -> String {
+        let generic = episode.title == "Folge \(episode.number)" || episode.title.isEmpty
+        return generic ? (episodeExtras[episode.number]?.title ?? episode.title) : episode.title
     }
     func isSeen(_ episode: Episode) -> Bool { store.progress(for: episode, profileID: request.profileID)?.isFinished == true }
     func progress(of episode: Episode) -> EpisodeProgress? { store.progress(for: episode, profileID: request.profileID) }
@@ -795,6 +808,7 @@ struct PlaybackView: View {
     @Environment(\.scenePhase) private var phase
     @Environment(\.verticalSizeClass) private var verticalSize
     @State private var showingMore = false
+    @State private var showingEpisodes = false
     @State private var expandedPlayer = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     init(request: PlaybackRequest, library: LibraryStore) {
@@ -831,15 +845,28 @@ struct PlaybackView: View {
                     VStack(spacing: 0) { topBar; hostPicker }.background(Theme.background.ignoresSafeArea())
                 }
                 if showingMore { settingsPanel.zIndex(2) }
+                if showingEpisodes {
+                    EpisodeStrip(model: model, episodes: model.seasonEpisodes, theater: theater) { showingEpisodes = false }.zIndex(2)
+                }
             }
             .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.88), value: showingMore)
+            .animation(reduceMotion ? nil : .spring(response: 0.38, dampingFraction: 0.9), value: showingEpisodes)
             .background((theater ? Color.black : Theme.background).ignoresSafeArea())
                 .toolbar(.hidden, for: .navigationBar)
                 .statusBarHidden(theater)
                 // Nothing of iOS should sit on top of the video while watching.
                 .persistentSystemOverlays(.hidden)
                 .alert("Download", isPresented: Binding(get: { downloads.storageError != nil }, set: { if !$0 { downloads.storageError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(downloads.storageError ?? "") }
-                .task { PlaybackCenter.shared.activate(model); await model.loadHosts() }
+                .task {
+                    PlaybackCenter.shared.activate(model)
+                    // Like Netflix and Crunchyroll, an episode opens sideways and fills the screen.
+                    if AppSettings.shared.startLandscape, UIDevice.current.userInterfaceIdiom == .phone, !theater {
+                        try? await Task.sleep(nanoseconds: 200_000_000)
+                        guard !Task.isCancelled else { return }
+                        OrientationLock.rotate(toLandscape: true)
+                    }
+                    await model.loadHosts()
+                }
                 .onChange(of: phase) { if $0 != .active { model.checkpoint(); model.cancelCountdown() } }
                 // Picture in Picture continues in a small window while the viewer keeps browsing.
                 .onChange(of: model.inPictureInPicture) { if $0 { dismiss() } }
@@ -885,7 +912,9 @@ struct PlaybackView: View {
                     .accessibilityLabel("Player schließen")
             }
             if model.nativeReady {
-                PlayerControls(model: model, clock: model.clock, theater: theater, close: close, more: { showingMore = true }, toggleFullscreen: toggleFullscreen, interactionLocked: showingMore)
+                PlayerControls(model: model, clock: model.clock, theater: theater, close: close, more: { showingMore = true },
+                               toggleFullscreen: toggleFullscreen, interactionLocked: showingMore || showingEpisodes,
+                               showEpisodes: { showingEpisodes = true }, episodesAvailable: !model.seasonEpisodes.isEmpty && !model.isOffline)
             }
         }.clipped()
     }
@@ -1020,10 +1049,7 @@ struct PlaybackView: View {
             }
         }
     }
-    private func episodeTitle(_ episode: Episode) -> String {
-        let generic = episode.title == "Folge \(episode.number)" || episode.title.isEmpty
-        return generic ? (model.episodeExtras[episode.number]?.title ?? episode.title) : episode.title
-    }
+    private func episodeTitle(_ episode: Episode) -> String { model.displayTitle(of: episode) }
     @ViewBuilder private var downloadTile: some View {
         if model.isOffline {
             EmptyView()
@@ -1136,6 +1162,9 @@ struct PlayerControls: View {
     let more: () -> Void
     let toggleFullscreen: () -> Void
     let interactionLocked: Bool
+    /// Opens the episode strip; only offered in full screen, where the list below the video is hidden.
+    var showEpisodes: () -> Void = {}
+    var episodesAvailable = false
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var visible = true
@@ -1160,7 +1189,7 @@ struct PlayerControls: View {
                     tapZone(forward: true)
                 }
                 if visible { chrome.transition(.opacity.combined(with: .scale(scale: 1.02))) }
-                SkipOverlay(model: model, clock: clock, bottom: visible ? (theater ? 96 : 58) : (theater ? 30 : 10))
+                SkipOverlay(model: model, clock: clock, bottom: visible ? (theater ? 128 : 58) : (theater ? 30 : 10), controlsVisible: visible)
                 if let from = model.resumedFrom { resumePill(from) }
             }
             if !visible && model.isBuffering { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
@@ -1281,7 +1310,7 @@ struct PlayerControls: View {
         }
         .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 6).background(.ultraThinMaterial).clipShape(Capsule())
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-        .padding(.leading, theater ? 56 : 12).padding(.bottom, visible ? (theater ? 96 : 58) : (theater ? 30 : 10))
+        .padding(.leading, theater ? 56 : 12).padding(.bottom, visible ? (theater ? 128 : 58) : (theater ? 30 : 10))
         .transition(.opacity.combined(with: .move(edge: .leading)))
     }
     private func scheduleHide() {
@@ -1303,6 +1332,12 @@ struct PlayerControls: View {
     }
     /// Runs a control action and keeps the controls on screen a little longer.
     private func act(_ action: () -> Void) { action(); scheduleHide() }
+    private func lock() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        hideTask?.cancel()
+        withAnimation { locked = true; visible = false }
+    }
+    private var speedText: String { model.speed == 1 ? "1x" : AppSettings.speedLabel(model.speed) }
 
     private var chrome: some View {
         ZStack {
@@ -1320,18 +1355,27 @@ struct PlayerControls: View {
                         }
                     }
                     Spacer(minLength: 0)
-                    Button {
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        hideTask?.cancel()
-                        withAnimation { locked = true; visible = false }
-                    } label: { Image(systemName: "lock.open.fill").font(theater ? .title3.weight(.semibold) : .body.weight(.semibold)).frame(width: 44, height: 44) }
-                        .accessibilityLabel("Bildschirm sperren")
+                    if theater {
+                        Button { act { model.fillScreen.toggle() } } label: {
+                            Image(systemName: model.fillScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                                .font(.title3.weight(.semibold)).frame(width: 44, height: 44)
+                        }.accessibilityLabel(model.fillScreen ? "Ganzes Bild zeigen" : "Bildschirm füllen")
+                    } else {
+                        Button(action: lock) { Image(systemName: "lock.open.fill").font(.body.weight(.semibold)).frame(width: 44, height: 44) }
+                            .accessibilityLabel("Bildschirm sperren")
+                    }
                     if model.pipPossible {
                         Button { model.togglePictureInPicture() } label: { Image(systemName: "pip.enter").font(theater ? .title3.weight(.semibold) : .body.weight(.semibold)).frame(width: 44, height: 44) }
                             .accessibilityLabel("Bild in Bild")
                     }
-                    Button(action: more) { Image(systemName: "gearshape.fill").font(theater ? .title3.weight(.semibold) : .body.weight(.semibold)).frame(width: 44, height: 44) }
-                        .accessibilityLabel("Wiedergabe-Einstellungen")
+                    if theater {
+                        Button { toggleFullscreen(); scheduleHide() } label: {
+                            Image(systemName: "rectangle.portrait.rotate").font(.title3.weight(.semibold)).frame(width: 44, height: 44)
+                        }.accessibilityLabel("Hochformat")
+                    } else {
+                        Button(action: more) { Image(systemName: "gearshape.fill").font(.body.weight(.semibold)).frame(width: 44, height: 44) }
+                            .accessibilityLabel("Wiedergabe-Einstellungen")
+                    }
                 }
                 Spacer(minLength: 0)
                 bottomBar
@@ -1373,30 +1417,25 @@ struct PlayerControls: View {
         }
     }
     private var fullBottomBar: some View {
-        VStack(spacing: theater ? 8 : 2) {
-            Scrubber(value: scrub ?? clock.seconds, duration: clock.duration, buffered: clock.buffered,
-                     changed: { scrub = $0; hideTask?.cancel() },
-                     ended: { model.seek(to: $0); scrub = nil; scheduleHide() }, segments: skipSegments)
+        VStack(spacing: 2) {
             HStack(spacing: 14) {
-                Text("\(EpisodeProgress.format(scrub ?? clock.seconds)) / \(EpisodeProgress.format(clock.duration))")
-                    .font(.caption.weight(.semibold).monospacedDigit()).foregroundColor(.white.opacity(0.85))
-                Spacer(minLength: 0)
-                if theater, let next = model.nextEpisode {
-                    Button { act { model.playNext() } } label: {
-                        Label("Folge \(next.number)", systemImage: "forward.end.fill").font(.footnote.bold())
-                            .padding(.horizontal, 14).frame(minHeight: 40).background(.ultraThinMaterial).clipShape(Capsule())
-                            .contentShape(Capsule())
-                    }.accessibilityLabel("Nächste Folge, Folge \(next.number)")
+                Scrubber(value: scrub ?? clock.seconds, duration: clock.duration, buffered: clock.buffered,
+                         changed: { scrub = $0; hideTask?.cancel() },
+                         ended: { model.seek(to: $0); scrub = nil; scheduleHide() }, segments: skipSegments)
+                // Remaining time, as Netflix shows it.
+                Text("-" + EpisodeProgress.format(max(0, clock.duration - (scrub ?? clock.seconds))))
+                    .font(.footnote.weight(.semibold).monospacedDigit()).foregroundColor(.white.opacity(0.85)).fixedSize()
+                    .accessibilityLabel("Restzeit \(EpisodeProgress.format(max(0, clock.duration - clock.seconds)))")
+            }
+            HStack(spacing: 0) {
+                PlayerBarButton(icon: "speedometer", title: "Tempo (\(speedText))") { act { model.cycleSpeed() } }
+                PlayerBarButton(icon: "lock.open", title: "Sperren", action: lock)
+                if episodesAvailable { PlayerBarButton(icon: "rectangle.stack", title: "Folgen", action: showEpisodes) }
+                if !model.isOffline { PlayerBarButton(icon: "character.bubble", title: "Sprache") { model.chooseHost() } }
+                PlayerBarButton(icon: "gearshape", title: "Mehr", action: more)
+                if model.nextEpisode != nil {
+                    PlayerBarButton(icon: "forward.end", title: "Nächste Folge") { act { model.playNext() } }
                 }
-                if theater {
-                    Button { act { model.fillScreen.toggle() } } label: {
-                        Image(systemName: model.fillScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right").font(.body.weight(.semibold))
-                    }.accessibilityLabel(model.fillScreen ? "Ganzes Bild zeigen" : "Bildschirm füllen")
-                }
-                Button { toggleFullscreen(); scheduleHide() } label: {
-                    Image(systemName: theater ? "arrow.down.right.and.arrow.up.left.rectangle" : "arrow.up.left.and.arrow.down.right.rectangle")
-                        .font(.body.weight(.semibold)).frame(width: 44, height: 44)
-                }.accessibilityLabel(theater ? "Vollbild verlassen" : "Vollbild")
             }
         }
     }
@@ -1455,48 +1494,79 @@ private struct Scrubber: View {
         }
     }
 }
-/// Skip buttons above the controls, only while they make sense:
-/// during the real opening/ending (AniSkip) and for the autoplay countdown.
+/// Skip buttons, Netflix-style: each one appears for a few seconds when its section starts and
+/// then steps back; while the controls are on screen it is available again. Ending and the
+/// autoplay countdown lead to the next episode and stay.
 private struct SkipOverlay: View {
     @ObservedObject var model: PlayerModel
     @ObservedObject var clock: PlayheadClock
     let bottom: CGFloat
-    /// AniSkip's opening, only when its timing fits this cut of the episode.
-    private var usableOpening: ClosedRange<Double>? {
-        guard let times = model.skipTimes, times.fits(duration: model.player?.currentItem?.duration.seconds) else { return nil }
-        return times.opening
+    let controlsVisible: Bool
+    /// Sections whose prominent moment has passed.
+    @State private var expired: Set<String> = []
+    @State private var fallbackUsed = false
+    private static let prominentNanoseconds: UInt64 = 8_000_000_000
+    private enum Kind: Equatable {
+        case none, fallback, recap(Double), opening(Double), ending(Double), countdown(Int)
+        var key: String {
+            switch self {
+            case .none: return ""
+            case .fallback: return "fallback"
+            case .recap: return "recap"
+            case .opening: return "opening"
+            case .ending: return "ending"
+            case .countdown: return "countdown"
+            }
+        }
+        var stays: Bool {
+            switch self {
+            case .ending, .countdown: return true
+            default: return false
+            }
+        }
     }
-    private enum Kind: Equatable { case none, recap(Double), opening(Double), ending(Double), countdown(Int) }
+    private var fittedTimes: SkipTimes? {
+        guard let times = model.skipTimes, times.fits(duration: model.player?.currentItem?.duration.seconds) else { return nil }
+        return times
+    }
     private var kind: Kind {
         if let seconds = model.countdown, model.nextEpisode != nil { return .countdown(seconds) }
-        guard let times = model.skipTimes, times.fits(duration: model.player?.currentItem?.duration.seconds) else { return .none }
         let now = clock.seconds
-        // With automatic skipping on, the opening is skipped for you; no button needed.
-        if let recap = times.recap, now >= recap.lowerBound - 1, now < recap.upperBound - 3 { return .recap(recap.upperBound) }
-        if let op = times.opening, !AppSettings.shared.autoSkipOpening, now >= op.lowerBound - 1, now < op.upperBound - 3 { return .opening(op.upperBound) }
-        if let ed = times.ending, now >= ed.lowerBound, now < ed.upperBound - 3 { return .ending(ed.upperBound) }
+        if let times = fittedTimes {
+            if let recap = times.recap, now >= recap.lowerBound - 1, now < recap.upperBound - 3 { return .recap(recap.upperBound) }
+            // With automatic skipping on, the opening is skipped for you; no button needed.
+            if let op = times.opening, !AppSettings.shared.autoSkipOpening, now >= op.lowerBound - 1, now < op.upperBound - 3 { return .opening(op.upperBound) }
+            if let ed = times.ending, now >= ed.lowerBound, now < ed.upperBound - 3 { return .ending(ed.upperBound) }
+        }
+        // Without usable opening times: the classic 85-second jump, early in the episode only.
+        if fittedTimes?.opening == nil, !fallbackUsed, now > 5, now < 180 { return .fallback }
         return .none
+    }
+    private var shown: Kind {
+        let current = kind
+        return current.stays || controlsVisible || !expired.contains(current.key) ? current : .none
     }
     var body: some View {
         HStack(spacing: 10) {
             Spacer()
-            switch kind {
+            switch shown {
             case .none:
-                // Without AniSkip data, offer the classic 85-second intro jump early in the episode.
-                if usableOpening == nil, clock.seconds > 5, clock.seconds < 240, model.countdown == nil {
-                    Button { model.skip(85) } label: { Label("Intro +85 s", systemImage: "forward.fill") }
-                        .buttonStyle(OverlayButtonStyle())
-                }
+                EmptyView()
+            case .fallback:
+                Button { fallbackUsed = true; model.skip(85) } label: { Label("Intro überspringen", systemImage: "forward.fill") }
+                    .buttonStyle(OverlayButtonStyle())
+                    .accessibilityHint("Springt 85 Sekunden vor")
             case .recap(let end):
-                Button { model.seek(to: end) } label: { Label("Rückblick überspringen", systemImage: "forward.fill") }
+                Button { expired.insert("recap"); model.seek(to: end) } label: { Label("Rückblick überspringen", systemImage: "forward.fill") }
                     .buttonStyle(OverlayButtonStyle())
             case .opening(let end):
-                Button { model.seek(to: end) } label: { Label("Opening überspringen", systemImage: "forward.fill") }
+                Button { expired.insert("opening"); model.seek(to: end) } label: { Label("Opening überspringen", systemImage: "forward.fill") }
                     .buttonStyle(OverlayButtonStyle())
             case .ending(let end):
                 if let next = model.nextEpisode {
-                    Button { model.playNext() } label: { Label("Folge \(next.number)", systemImage: "forward.end.fill") }
+                    Button { model.playNext() } label: { Label("Nächste Folge", systemImage: "forward.end.fill") }
                         .buttonStyle(OverlayButtonStyle(prominent: true))
+                        .accessibilityLabel("Nächste Folge, Folge \(next.number)")
                 } else {
                     Button { model.seek(to: end) } label: { Label("Abspann überspringen", systemImage: "forward.fill") }
                         .buttonStyle(OverlayButtonStyle())
@@ -1520,7 +1590,19 @@ private struct SkipOverlay: View {
         }
         .padding(.trailing, 16).padding(.bottom, bottom)
         .frame(maxHeight: .infinity, alignment: .bottom)
-        .animation(.easeInOut(duration: 0.25), value: kind)
+        .animation(.easeInOut(duration: 0.25), value: shown)
+        .onAppear { expireLater(kind.key) }
+        .onChange(of: kind.key) { expireLater($0) }
+        .onChange(of: model.request.episode.id) { _ in expired = []; fallbackUsed = false }
+    }
+    /// Starts the few prominent seconds of a section.
+    private func expireLater(_ key: String) {
+        guard !key.isEmpty, !expired.contains(key) else { return }
+        let episode = model.request.episode.id
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.prominentNanoseconds)
+            if model.request.episode.id == episode { expired.insert(key) }
+        }
     }
 }
 private struct OverlayButtonStyle: ButtonStyle {
@@ -1658,4 +1740,103 @@ struct ScrubberSegment: Identifiable {
     var id: Double { range.lowerBound }
     let range: ClosedRange<Double>
     let color: Color
+}
+
+/// One labelled action in the landscape player bar (Netflix: "Tempo (1x)", "Folgen" …).
+private struct PlayerBarButton: View {
+    let icon: String
+    let title: String
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 7) {
+                Image(systemName: icon).font(.system(size: 17, weight: .semibold))
+                Text(title).font(.footnote.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
+        }
+        .buttonStyle(LoungePressStyle()).foregroundColor(.white)
+    }
+}
+
+/// Netflix-style episode strip over the video: switch episodes without leaving full screen.
+struct EpisodeStrip: View {
+    @ObservedObject var model: PlayerModel
+    let episodes: [Episode]
+    let theater: Bool
+    let close: () -> Void
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.55).ignoresSafeArea().onTapGesture(perform: close).transition(.opacity)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Folgen").font(.headline)
+                        Text(model.request.anime.title).font(.caption).foregroundColor(Theme.muted).lineLimit(1)
+                    }
+                    Spacer()
+                    Toggle(isOn: Binding(get: { model.autoNext }, set: { model.setAutoNext($0) })) {
+                        Text("Autoplay").font(.caption.weight(.semibold)).foregroundColor(Theme.muted)
+                    }.toggleStyle(.switch).tint(Theme.accent).fixedSize()
+                    Button(action: close) { CircleIcon(systemName: "xmark") }
+                        .buttonStyle(LoungePressStyle()).accessibilityLabel("Folgen schließen")
+                }
+                .padding(.horizontal, inset)
+                ScrollViewReader { reader in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(alignment: .top, spacing: 12) {
+                            ForEach(episodes) { episode in card(episode).id(episode.id) }
+                        }.padding(.horizontal, inset)
+                    }
+                    .onAppear { reader.scrollTo(model.request.episode.id, anchor: .center) }
+                }
+            }
+            .padding(.top, 18).padding(.bottom, theater ? 22 : 34)
+            .frame(maxWidth: .infinity)
+            .background {
+                // The corners of the sheet sit below the screen edge, like a system sheet.
+                RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.ultraThinMaterial)
+                    .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color.black.opacity(0.4)))
+                    .padding(.bottom, -40)
+            }
+            .ignoresSafeArea(edges: [.horizontal, .bottom])
+            .transition(.move(edge: .bottom))
+        }
+        .foregroundColor(.white)
+    }
+    /// Clear of the notch in landscape, the usual margin upright.
+    private var inset: CGFloat { theater ? 64 : 20 }
+    private func card(_ episode: Episode) -> some View {
+        let current = episode.id == model.request.episode.id
+        return Button {
+            close()
+            model.play(episode)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                ZStack {
+                    if let still = model.episodeExtras[episode.number]?.image { Artwork(url: still) }
+                    else { Theme.panelHigh; Text(episode.number).font(.title2.weight(.heavy)).foregroundColor(.white.opacity(0.35)) }
+                    if current {
+                        Color.black.opacity(0.5)
+                        Label("Läuft gerade", systemImage: "waveform").font(.caption.weight(.bold)).foregroundColor(.white)
+                    }
+                    if !current, let fraction = model.progress(of: episode).flatMap({ $0.isFinished ? nil : $0.fraction }), fraction > 0 {
+                        ProgressBar(value: fraction, track: .black.opacity(0.45), height: 3).frame(maxHeight: .infinity, alignment: .bottom)
+                    }
+                }
+                .frame(width: 210, height: 118).clipShape(RoundedRectangle(cornerRadius: Theme.tileRadius))
+                .overlay(RoundedRectangle(cornerRadius: Theme.tileRadius).stroke(current ? Theme.accent : Theme.stroke, lineWidth: current ? 2 : 1))
+                .overlay(alignment: .topTrailing) {
+                    if model.isSeen(episode) && !current {
+                        Image(systemName: "checkmark").font(.system(size: 9, weight: .black)).frame(width: 18, height: 18)
+                            .background(Theme.accent).clipShape(Circle()).padding(6)
+                    }
+                }
+                Text("Folge \(episode.number)").font(.caption.weight(.bold)).foregroundColor(current ? Theme.accentSoft : Theme.muted)
+                Text(model.displayTitle(of: episode)).font(.footnote.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
+            }.frame(width: 210, alignment: .leading)
+        }
+        .buttonStyle(LoungePressStyle()).foregroundColor(.white).disabled(current)
+        .accessibilityLabel(current ? "Folge \(episode.number), läuft gerade" : "Folge \(episode.number): \(model.displayTitle(of: episode))")
+    }
 }

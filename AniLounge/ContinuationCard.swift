@@ -30,7 +30,7 @@ struct ContinuationCard: View {
                 if let fraction = progress?.fraction {
                     ProgressBar(value: fraction, track: .white.opacity(0.25), height: 3)
                 }
-            }.frame(width: 230, height: 129).clipShape(RoundedRectangle(cornerRadius: 10))
+            }.frame(width: 230, height: 129).clipShape(RoundedRectangle(cornerRadius: Theme.tileRadius))
             Text(item.anime.title).font(.subheadline.bold()).lineLimit(2)
             Text(label).font(.caption.monospacedDigit()).foregroundColor(Theme.muted)
         }.frame(width: 230).foregroundColor(.white)
