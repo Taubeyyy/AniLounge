@@ -16,6 +16,8 @@ import AniCore
     @Published var preferredHoster: String { didSet { defaults.set(preferredHoster, forKey: "playback.hoster"); forgetRememberedSources() } }
     @Published var wifiOnlyDownloads: Bool { didSet { defaults.set(wifiOnlyDownloads, forKey: "downloads.wifiOnly") } }
     @Published var heroAutoAdvance: Bool { didSet { defaults.set(heroAutoAdvance, forKey: "home.heroAutoAdvance") } }
+    /// Episodes open in landscape full screen, like Netflix and Crunchyroll.
+    @Published var startLandscape: Bool { didSet { defaults.set(startLandscape, forKey: "playback.startLandscape") } }
     static let speeds: [Double] = [0.75, 1, 1.25, 1.5, 2]
     static let languages = ["DE", "DE-Sub", "EN-Sub"]
     static let hosters = ["VOE", "Filemoon", "Vidmoly", "Doodstream"]
@@ -30,6 +32,7 @@ import AniCore
         preferredHoster = defaults.string(forKey: "playback.hoster") ?? "VOE"
         wifiOnlyDownloads = defaults.bool(forKey: "downloads.wifiOnly")
         heroAutoAdvance = defaults.object(forKey: "home.heroAutoAdvance") as? Bool ?? false
+        startLandscape = defaults.object(forKey: "playback.startLandscape") as? Bool ?? true
     }
     /// A new default should win over the source each profile remembered last.
     private func forgetRememberedSources() {
@@ -93,6 +96,7 @@ struct SettingsView: View {
                 SettingsSection(title: "Wiedergabe") {
                     SettingsToggle(title: "Nächste Folge automatisch", subtitle: "Countdown am Ende jeder Folge", icon: "forward.end.fill", isOn: $settings.autoNext)
                     SettingsToggle(title: "Opening automatisch überspringen", subtitle: "Wenn AniSkip die Zeiten kennt", icon: "forward.fill", isOn: $settings.autoSkipOpening)
+                    SettingsToggle(title: "Im Querformat starten", subtitle: "Folgen öffnen im Vollbild; drehen geht jederzeit", icon: "iphone.landscape", isOn: $settings.startLandscape)
                     SettingsPills(title: "Geschwindigkeit", icon: "speedometer", options: AppSettings.speeds, label: AppSettings.speedLabel, selection: $settings.speed)
                     SettingsToggle(title: "Datensparmodus", subtitle: "Begrenzt HLS-Streams auf etwa 720p", icon: "leaf.fill", isOn: $settings.dataSaver)
                 }

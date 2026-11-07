@@ -42,7 +42,9 @@ struct FinishedView: View {
                 } else {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 150 : 104), spacing: 12, alignment: .top)], spacing: 18) {
                         ForEach(finished) { anime in
-                            NavigationLink { DetailView(anime: anime) } label: { GridPoster(anime: anime) }
+                            NavigationLink { DetailView(anime: anime) } label: {
+                                if let entry = library.entry(for: anime) { TrophyPoster(entry: entry) } else { GridPoster(anime: anime) }
+                            }
                                 .buttonStyle(LoungePressStyle())
                                 .contextMenu {
                                     Button { library.setStatus(.watching, for: anime) } label: { Label("Doch noch nicht fertig", systemImage: "play.circle") }

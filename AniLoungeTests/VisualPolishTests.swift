@@ -23,10 +23,21 @@ import AniCore
                       view: ProfileSummaryView(openProfile: {}).environmentObject(library))
         await capture("Profiluebersicht-grosse-Schrift", size: CGSize(width: 393, height: 852),
                       view: ProfileSummaryView(openProfile: {}).environmentObject(library).dynamicTypeSize(.accessibility2))
+        library.setStatus(.planned, for: Anime(path: "preview://planned", title: "Für den nächsten Anime-Abend"))
+        library.setStatus(.paused, for: Anime(path: "preview://paused", title: "Ein Abenteuer auf Pause"))
+        let watching = Anime(path: "preview://watching", title: "Die Geschichte geht weiter")
+        let current = try JSONDecoder().decode(Episode.self, from: Data("""
+        {"path":"preview://watching/episode-2","number":"2","title":"Weiter geht es","languages":[]}
+        """.utf8))
+        library.saveProgress(current, anime: watching, seconds: 120, duration: 1440, completed: false, profileID: library.profile.id)
         await capture("Watchlist-iPhone-320", size: CGSize(width: 320, height: 640),
                       view: NavigationStack { SavedView() }.environmentObject(library))
         await capture("Watchlist-grosse-Schrift", size: CGSize(width: 393, height: 852),
                       view: NavigationStack { SavedView() }.environmentObject(library).dynamicTypeSize(.accessibility2))
+        await capture("Watchlist-Fertig", size: CGSize(width: 393, height: 852),
+                      view: NavigationStack { SavedView(initialFilter: .completed) }.environmentObject(library))
+        await capture("Watchlist-iPad", size: CGSize(width: 768, height: 1024),
+                      view: NavigationStack { SavedView() }.environmentObject(library))
         await capture("Startkarte-iPhone-320", size: CGSize(width: 320, height: 440),
                       view: HeroView(anime: anime).environmentObject(library).padding(20).background(Theme.background))
         await capture("Folge-grosse-Schrift", size: CGSize(width: 393, height: 600),

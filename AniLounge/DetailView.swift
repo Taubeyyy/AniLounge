@@ -86,7 +86,7 @@ struct DetailView: View {
                     .frame(width: 100, height: 150).clipShape(RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.stroke)).shadow(color: .black.opacity(0.5), radius: 16, y: 8)
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(currentAnime.title).font(.system(size: 26, weight: .heavy, design: .rounded)).lineLimit(3).minimumScaleFactor(0.7)
+                    Text(currentAnime.title).font(.system(size: 28, weight: .heavy)).tracking(-0.6).lineLimit(3).minimumScaleFactor(0.7)
                     if let extras { ExtrasBadges(extras: extras) }
                     if let metadataLine {
                         Text(metadataLine).font(.caption.weight(.semibold)).foregroundColor(.white.opacity(0.8)).lineLimit(2)
@@ -231,7 +231,7 @@ struct DetailView: View {
     }
     private func episodesSection(_ detail: AnimeDetail) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Folgen").font(.system(.title3, design: .rounded).bold())
+            Text("Folgen").font(.title3.weight(.heavy)).tracking(-0.3)
             if detail.seasons.count > 1 {
                 ScrollViewReader { reader in
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -394,7 +394,7 @@ struct EpisodeRow: View {
                         if let still = info?.image { Artwork(url: still) }
                         else {
                             Theme.panelHigh
-                            Text(episode.number).font(.system(.title2, design: .rounded).bold()).foregroundColor(.white.opacity(0.35))
+                            Text(episode.number).font(.title2.weight(.heavy)).foregroundColor(.white.opacity(0.35))
                         }
                         Image(systemName: "play.fill").font(.caption).foregroundColor(.white).frame(width: 30, height: 30)
                             .background(.black.opacity(0.45)).clipShape(Circle()).overlay(Circle().stroke(.white.opacity(0.5)))

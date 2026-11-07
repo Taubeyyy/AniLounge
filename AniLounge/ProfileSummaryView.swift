@@ -65,7 +65,7 @@ struct ProfileSummaryView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: icon).font(.subheadline).foregroundColor(Theme.accentSoft).accessibilityHidden(true)
-                Text(value).font(.system(.title2, design: .rounded).bold()).fixedSize(horizontal: false, vertical: true)
+                Text(value).font(.title2.weight(.heavy)).fixedSize(horizontal: false, vertical: true)
             }
             Text(title).font(.caption).foregroundColor(Theme.muted).fixedSize(horizontal: false, vertical: true)
         }

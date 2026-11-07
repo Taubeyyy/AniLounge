@@ -1,11 +1,9 @@
-# AniLounge 1.0.2 · Build 24
+# AniLounge 1.1.1 · Build 27
 
-- Der Profil-Knopf auf der Startseite öffnet jetzt eine kompakte Profilübersicht statt einer Profil-Seite ohne Zurück-Knopf.
-- Mini-Statistiken zeigen deine Sehzeit, gesehene Folgen, fertige Anime und die Anzahl der Einträge auf deiner Watchlist.
-- Die Übersicht lässt sich mit dem X oder durch Herunterwischen schließen. „Zum Profil“ schließt das Fenster und wechselt zum vorhandenen Profil-Tab.
-- Große Schrift erhält eine scrollbare, einspaltige Darstellung; der Schließen-Knopf bleibt sichtbar.
+Feinschliff für die neue Watchlist.
 
-- Gespeicherte Cover- und Hintergrundadressen stehen sofort bereit. Bilder aus dem Arbeitsspeicher erscheinen ohne erneutes Einblenden; vorhandene Vorschauen bleiben beim Schärferladen sichtbar.
-- Poster und große Bilder teilen denselben Download. Gespeicherte Bilddateien werden auch nach einem App-Neustart ohne erneute Netzwerkanfrage verwendet.
+- Die Karten in allen Watchlist-Listen sind sofort sichtbar. Vorher konnten Poster unter „Geplant“ beim Öffnen kurz leer bleiben, wenn die App gerade beschäftigt war.
+- Im Trophäenschrank steht die Sehzeit unter einer Stunde in Minuten. Hast du in der App noch nichts geschaut, fehlt die Angabe statt „0 Std.“.
+- Bei sehr großer Schrift wird die „Zuletzt geschaut“-Karte höher, damit Titel und Folge vollständig zu lesen sind.
 
 Installation: AniLounge.ipa mit TrollStore als Update über die vorhandene App installieren.

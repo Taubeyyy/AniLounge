@@ -73,7 +73,7 @@ struct HeroCarousel: View {
     let items: [Anime]
     @State private var page = 0
     @State private var tint: Color?
-    @ScaledMetric(relativeTo: .title) private var heroHeight = 360
+    @ScaledMetric(relativeTo: .title) private var heroHeight = 440
     @ObservedObject private var settings = AppSettings.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
@@ -88,8 +88,8 @@ struct HeroCarousel: View {
                     }
                 }.padding(.bottom, 2).animation(.spring(response: 0.3), value: page).accessibilityHidden(true)
             }
-            .frame(height: min(heroHeight, 520)).clipShape(RoundedRectangle(cornerRadius: 24))
-            .overlay(RoundedRectangle(cornerRadius: 24).stroke(Theme.stroke))
+            .frame(height: min(heroHeight, 520)).clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(Theme.stroke))
             .shadow(color: .black.opacity(0.35), radius: 24, y: 12)
             .padding(.horizontal, 20)
             // The artwork's colour washes over the top of the screen and changes with each slide.
@@ -116,28 +116,68 @@ struct HeroCarousel: View {
 struct HeroView: View {
     let anime: Anime
     @EnvironmentObject private var library: LibraryStore
+    @State private var genres: [String] = []
+    @State private var starting = false
     var body: some View {
         ZStack(alignment: .bottom) {
-            WideArtwork(anime: anime)
-            LinearGradient(stops: [.init(color: .black.opacity(0.45), location: 0), .init(color: .clear, location: 0.25),
-                                   .init(color: Theme.background.opacity(0.35), location: 0.55), .init(color: Theme.background, location: 0.95)],
-                           startPoint: .top, endPoint: .bottom)
-            VStack(spacing: 16) {
-                Text(anime.title).font(.system(.title, design: .rounded).weight(.heavy)).multilineTextAlignment(.center)
-                    .lineLimit(3).minimumScaleFactor(0.85).shadow(color: .black.opacity(0.5), radius: 10)
-                HStack(spacing: 12) {
-                    NavigationLink { DetailView(anime: anime) } label: {
-                        Label("Ansehen", systemImage: "play.fill").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 13)
-                            .background(Color.white).foregroundColor(.black).clipShape(RoundedRectangle(cornerRadius: 10))
-                    }.buttonStyle(LoungePressStyle())
-                    Button { library.toggleWatchlist(anime) } label: {
-                        Label("Watchlist", systemImage: library.contains(anime) ? "checkmark" : "plus")
-                            .font(.subheadline.bold()).frame(maxWidth: .infinity).padding(.vertical, 13)
-                            .background(.ultraThinMaterial).foregroundColor(.white).clipShape(RoundedRectangle(cornerRadius: 10))
-                    }.buttonStyle(LoungePressStyle())
+            // The whole picture opens the details, like a Netflix billboard.
+            NavigationLink { DetailView(anime: anime) } label: {
+                ZStack {
+                    WideArtwork(anime: anime)
+                    LinearGradient(stops: [.init(color: .black.opacity(0.35), location: 0), .init(color: .clear, location: 0.3),
+                                           .init(color: .black.opacity(0.45), location: 0.6), .init(color: .black.opacity(0.92), location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
                 }
-            }.padding(.horizontal, 24).padding(.bottom, 30)
-        }.clipped()
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Details zu \(anime.title)")
+            VStack(spacing: 10) {
+                Text(anime.title).font(.system(size: 30, weight: .heavy)).tracking(-0.8).multilineTextAlignment(.center)
+                    .lineLimit(2).minimumScaleFactor(0.75).shadow(color: .black.opacity(0.5), radius: 12)
+                    .allowsHitTesting(false)
+                if !genres.isEmpty {
+                    Text(genres.joined(separator: "  ·  ")).font(.footnote.weight(.semibold)).foregroundColor(.white.opacity(0.85))
+                        .lineLimit(1).allowsHitTesting(false).transition(.opacity)
+                }
+                HStack(spacing: 10) {
+                    Button(action: play) {
+                        HStack(spacing: 8) {
+                            if starting { ProgressView().tint(.black) } else { Image(systemName: "play.fill") }
+                            Text("Abspielen")
+                        }
+                        .font(.subheadline.weight(.bold)).frame(maxWidth: .infinity).frame(minHeight: 46)
+                        .background(Color.white).foregroundColor(.black).clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(LoungePressStyle()).disabled(starting)
+                    .accessibilityLabel("\(anime.title) abspielen")
+                    Button { library.toggleWatchlist(anime) } label: {
+                        Label(library.contains(anime) ? "Gemerkt" : "Watchlist", systemImage: library.contains(anime) ? "checkmark" : "plus")
+                            .font(.subheadline.weight(.bold)).frame(maxWidth: .infinity).frame(minHeight: 46)
+                            .background(.ultraThinMaterial).foregroundColor(.white).clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                    .buttonStyle(LoungePressStyle())
+                }
+                .padding(.top, 4)
+            }
+            .padding(.horizontal, 20).padding(.bottom, 26)
+        }
+        .clipped()
+        .animation(.easeOut(duration: 0.3), value: genres)
+        .task(id: anime.id) {
+            // Genres come from the series page that the wide artwork already loads (cached).
+            if let detail = try? await AniClient.shared.detail(path: anime.path), !Task.isCancelled {
+                genres = Array(detail.genres.prefix(3))
+            }
+        }
+    }
+    /// Starts right away: the remembered episode, the next one, or episode 1.
+    private func play() {
+        guard !starting else { return }
+        starting = true
+        Task { @MainActor in
+            await QuickPlay.start(anime, library: library)
+            starting = false
+        }
     }
 }
 struct InfoView: View {
@@ -175,8 +215,8 @@ struct RecentShelf: View {
                         ForEach(Array(items)) { entry in
                             NavigationLink { DetailView(anime: entry.anime, resumeEpisode: entry.episode) } label: {
                                 VStack(alignment: .leading, spacing: 7) {
-                                    WideArtwork(anime: entry.anime).frame(width: 200, height: 112).clipShape(RoundedRectangle(cornerRadius: 10))
-                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.stroke))
+                                    WideArtwork(anime: entry.anime).frame(width: 200, height: 112).clipShape(RoundedRectangle(cornerRadius: Theme.tileRadius))
+                                        .overlay(RoundedRectangle(cornerRadius: Theme.tileRadius).stroke(Theme.stroke))
                                     Text(entry.anime.title).font(.subheadline.bold()).lineLimit(1)
                                     Text("Folge \(entry.episode.number)").font(.caption).foregroundColor(Theme.muted)
                                 }.frame(width: 200).foregroundColor(.white)

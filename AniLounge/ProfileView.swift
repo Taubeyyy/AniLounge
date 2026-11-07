@@ -52,7 +52,7 @@ struct ProfileView: View {
                     .frame(width: 96, height: 96).background(Theme.accentGradient).clipShape(Circle())
                     .overlay(Circle().stroke(.white.opacity(0.35), lineWidth: 2))
                     .shadow(color: Theme.accent.opacity(0.5), radius: 24, y: 10)
-                Text(library.profile.name).font(.system(size: 28, weight: .heavy, design: .rounded)).lineLimit(1)
+                Text(library.profile.name).font(.system(size: 28, weight: .heavy)).tracking(-0.6).lineLimit(1)
                 Button { editing = true } label: {
                     Label("Profil bearbeiten", systemImage: "pencil").font(.footnote.bold()).padding(.horizontal, 16).frame(minHeight: 36)
                         .background(.ultraThinMaterial).clipShape(Capsule()).overlay(Capsule().stroke(Theme.stroke))
@@ -73,7 +73,7 @@ struct ProfileView: View {
     }
     private func stat(_ value: String, _ title: String) -> some View {
         VStack(spacing: 3) {
-            Text(value).font(.system(.title3, design: .rounded).bold()).lineLimit(1).minimumScaleFactor(0.6)
+            Text(value).font(.title3.weight(.heavy)).lineLimit(1).minimumScaleFactor(0.6)
             Text(title).font(.caption2).foregroundColor(Theme.muted)
         }.frame(maxWidth: .infinity).accessibilityElement(children: .combine)
     }
