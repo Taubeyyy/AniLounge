@@ -48,10 +48,10 @@ import AniCore
         player.nextEpisode = episodes[2]
         // 40 s in, without AniSkip times: the intro button is in its prominent moment.
         player.clock.seconds = 40; player.clock.duration = 1440; player.clock.buffered = 300
-        await capture("Premium-Player-Querformat", size: CGSize(width: 844, height: 390),
+        await capture("Premium-Player-Querformat", size: CGSize(width: 844, height: 390), safeArea: false,
                       view: PlayerControls(model: player, clock: player.clock, theater: true, close: {}, more: {}, toggleFullscreen: {},
                                            interactionLocked: false, showEpisodes: {}, episodesAvailable: true).background(.black))
-        await capture("Premium-Player-Hochformat", size: CGSize(width: 393, height: 221),
+        await capture("Premium-Player-Hochformat", size: CGSize(width: 393, height: 240), safeArea: false,
                       view: PlayerControls(model: player, clock: player.clock, theater: false, close: {}, more: {}, toggleFullscreen: {},
                                            interactionLocked: false).background(.black))
         await capture("Premium-Folgenleiste", size: CGSize(width: 844, height: 390),
@@ -60,7 +60,7 @@ import AniCore
                       view: ZStack { Color.black; EpisodeStrip(model: player, episodes: episodes, theater: false, close: {}) })
         player.clock.seconds = 1400
         player.countdown = 7
-        await capture("Premium-Player-Countdown", size: CGSize(width: 844, height: 390),
+        await capture("Premium-Player-Countdown", size: CGSize(width: 844, height: 390), safeArea: false,
                       view: PlayerControls(model: player, clock: player.clock, theater: true, close: {}, more: {}, toggleFullscreen: {},
                                            interactionLocked: false, showEpisodes: {}, episodesAvailable: true).background(.black))
     }
@@ -200,8 +200,10 @@ import AniCore
         XCTAssertEqual(library.entry(for: loud.anime)?.trophy, .bronze)
     }
 
-    private func capture<V: View>(_ name: String, size: CGSize, settle: Double = 0.4, view: V) async {
+    private func capture<V: View>(_ name: String, size: CGSize, settle: Double = 0.4, safeArea: Bool = true, view: V) async {
         let host = UIHostingController(rootView: view.preferredColorScheme(.dark))
+        // The player's stage ignores the device insets; without this the simulator squeezes it.
+        if !safeArea { host.safeAreaRegions = [] }
         let window = UIWindow(frame: CGRect(origin: .zero, size: size))
         window.rootViewController = host
         window.makeKeyAndVisible()

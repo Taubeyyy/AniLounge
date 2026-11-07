@@ -245,20 +245,17 @@ private struct WatchingList: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let first = entries.first {
-                FeaturedWatchCard(entry: first).padding(.horizontal, 20).appearStagger(0)
+                FeaturedWatchCard(entry: first).padding(.horizontal, 20)
             }
-            if entries.count > 1 { RowList(entries: Array(entries.dropFirst()), offset: 1) }
+            if entries.count > 1 { RowList(entries: Array(entries.dropFirst())) }
         }
     }
 }
 private struct RowList: View {
     let entries: [WatchlistEntry]
-    var offset = 0
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 330), spacing: 12)], spacing: 10) {
-            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                WatchlistRow(entry: entry).appearStagger(index + offset)
-            }
+            ForEach(entries) { entry in WatchlistRow(entry: entry) }
         }
         .padding(.horizontal, 20)
     }
@@ -266,15 +263,18 @@ private struct RowList: View {
 private struct FeaturedWatchCard: View {
     let entry: WatchlistEntry
     @EnvironmentObject private var library: LibraryStore
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         NavigationLink { DetailView(anime: entry.anime) } label: {
             ZStack(alignment: .bottomLeading) {
-                Color.clear.aspectRatio(16 / 9, contentMode: .fit).overlay(WideArtwork(anime: entry.anime))
+                Color.clear.aspectRatio(typeSize.isAccessibilitySize ? 3 / 4 : 16 / 9, contentMode: .fit).overlay(WideArtwork(anime: entry.anime))
                 LinearGradient(stops: [.init(color: .clear, location: 0.25), .init(color: .black.opacity(0.9), location: 1)],
                                startPoint: .top, endPoint: .bottom)
                 VStack(alignment: .leading, spacing: 5) {
                     Text("ZULETZT GESCHAUT").font(.caption2.weight(.heavy)).tracking(1.2).foregroundColor(Theme.accentSoft)
-                    Text(entry.anime.title).font(.title3.weight(.heavy)).tracking(-0.3).lineLimit(2).multilineTextAlignment(.leading)
+                        .lineLimit(1).minimumScaleFactor(0.7)
+                    Text(entry.anime.title).font(.title3.weight(.heavy)).tracking(-0.3).lineLimit(typeSize.isAccessibilitySize ? 4 : 2)
+                        .multilineTextAlignment(.leading)
                     Text(WatchlistText.progress(entry)).font(.footnote.weight(.medium)).foregroundColor(.white.opacity(0.8)).lineLimit(1)
                 }
                 .padding(.leading, 16).padding(.trailing, 84).padding(.bottom, 18)
@@ -354,7 +354,7 @@ private struct PlannedGrid: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 150 : 104), spacing: 12, alignment: .top)], spacing: 18) {
-            ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+            ForEach(entries) { entry in
                 NavigationLink { DetailView(anime: entry.anime) } label: {
                     VStack(alignment: .leading, spacing: 7) {
                         Color.clear.aspectRatio(2 / 3, contentMode: .fit)
@@ -367,7 +367,6 @@ private struct PlannedGrid: View {
                 }
                 .buttonStyle(LoungePressStyle())
                 .contextMenu { WatchlistMenu(entry: entry, library: library) }
-                .appearStagger(index)
             }
         }
         .padding(.horizontal, 20)
@@ -379,18 +378,21 @@ private struct TrophyCabinet: View {
     let entries: [WatchlistEntry]
     @EnvironmentObject private var library: LibraryStore
     @Environment(\.dynamicTypeSize) private var typeSize
+    private var watchTime: String? {
+        let minutes = Int(library.active.watchedSeconds / 60)
+        if minutes >= 60 { return "\(minutes / 60) Std. Sehzeit" }
+        return minutes > 0 ? "\(minutes) Min. Sehzeit" : nil
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
-            TrophyCabinetHeader(entries: entries, episodes: library.active.finishedEpisodes,
-                                hours: Int(library.active.watchedSeconds / 3600))
-                .padding(.horizontal, 20).appearStagger(0)
+            TrophyCabinetHeader(entries: entries, episodes: library.active.finishedEpisodes, watchTime: watchTime)
+                .padding(.horizontal, 20)
             if !entries.isEmpty {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: typeSize.isAccessibilitySize ? 150 : 104), spacing: 14, alignment: .top)], spacing: 22) {
-                    ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                    ForEach(entries) { entry in
                         NavigationLink { DetailView(anime: entry.anime) } label: { TrophyPoster(entry: entry) }
                             .buttonStyle(LoungePressStyle())
                             .contextMenu { WatchlistMenu(entry: entry, library: library) }
-                            .appearStagger(index + 1)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -529,21 +531,3 @@ enum WatchlistText {
     }()
 }
 
-/// Cards rise in one after another the first time a list shows them.
-private struct AppearStagger: ViewModifier {
-    let index: Int
-    @State private var shown = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    func body(content: Content) -> some View {
-        content
-            .opacity(shown || reduceMotion ? 1 : 0)
-            .offset(y: shown || reduceMotion ? 0 : 14)
-            .onAppear {
-                guard !shown, !reduceMotion else { return }
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.86).delay(Double(min(index, 8)) * 0.04)) { shown = true }
-            }
-    }
-}
-extension View {
-    func appearStagger(_ index: Int) -> some View { modifier(AppearStagger(index: index)) }
-}

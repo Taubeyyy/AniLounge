@@ -104,7 +104,13 @@ struct TrophyPoster: View {
 struct TrophyCabinetHeader: View {
     let entries: [WatchlistEntry]
     let episodes: Int
-    let hours: Int
+    /// "12 Std. Sehzeit"; nil before anything was watched in the app.
+    let watchTime: String?
+    private var totals: String {
+        let count = "Insgesamt \(episodes) \(episodes == 1 ? "Folge" : "Folgen")"
+        guard let watchTime else { return count }
+        return count + " · " + watchTime
+    }
     var body: some View {
         let tiers = Dictionary(grouping: entries.compactMap(\.trophy), by: { $0 }).mapValues(\.count)
         let best = tiers.keys.max()
@@ -135,7 +141,7 @@ struct TrophyCabinetHeader: View {
                 Spacer(minLength: 0)
             }
             if episodes > 0 {
-                Text("Insgesamt \(episodes) \(episodes == 1 ? "Folge" : "Folgen") · \(hours) Std. Sehzeit")
+                Text(totals)
                     .font(.caption.weight(.semibold)).foregroundColor(Theme.muted)
             }
         }
