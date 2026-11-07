@@ -174,15 +174,9 @@ struct HeroView: View {
     private func play() {
         guard !starting else { return }
         starting = true
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
         Task { @MainActor in
-            defer { starting = false }
-            let decision = try? await SeriesCatalogStore.shared.resolveStart(anime: anime, profile: library.active)
-            guard let episode = decision?.episode else {
-                ToastCenter.shared.show("Folgen konnten nicht geladen werden. Tippe aufs Bild für Details.", icon: "exclamationmark.triangle")
-                return
-            }
-            PlaybackCenter.shared.open(PlaybackRequest(anime: anime, episode: episode, profileID: library.profile.id), library: library)
+            await QuickPlay.start(anime, library: library)
+            starting = false
         }
     }
 }

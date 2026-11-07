@@ -44,6 +44,7 @@ struct RootView: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { LoungeTabBar(tabs: tabs, selected: $selected) }
         .id(library.profile.id)
         .overlay(alignment: .top) { ToastHost() }
+        .overlay(alignment: .top) { TrophyBannerHost() }
         .overlay { if launching { LaunchOverlay { launching = false }.transition(.opacity).zIndex(10) } }
         // Every episode opens here, and so does a restored Picture in Picture window.
         .fullScreenCover(item: $playback.presented) { PlaybackView(model: $0) }

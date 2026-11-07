@@ -6,6 +6,11 @@ import AniCore
     @Published private(set) var snapshot: LibrarySnapshot { didSet { refreshList() } }
     @Published var storageError: String?
     @Published private(set) var listStatuses: [String: WatchStatus] = [:]
+    /// Every watchlist series with its status, progress and trophy, computed once per change.
+    @Published private(set) var watchlist: [WatchlistEntry] = []
+    private var entryIndex: [String: WatchlistEntry] = [:]
+    private var listProfileID: UUID?
+    private var foregroundSubscription: AnyCancellable?
     private var listedAnime: [Anime] = []
     private var knownCatalogs: [String: SeriesCatalog] = [:]
     private var catalogSubscription: AnyCancellable?
@@ -26,10 +31,30 @@ import AniCore
             self?.knownCatalogs = catalogs
             self?.refreshList()
         }
+        // "Paused" depends on the date: back in the app after a while, look again.
+        foregroundSubscription = NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
+            .sink { [weak self] _ in self?.refreshList() }
     }
     private func refreshList() {
-        listedAnime = active.watchlistItems
-        listStatuses = active.listStatuses(catalogs: knownCatalogs)
+        let previous = listStatuses
+        let sameProfile = listProfileID == profile.id
+        let entries = active.watchlistEntries(catalogs: knownCatalogs)
+        listedAnime = entries.map(\.anime)
+        entryIndex = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0) })
+        listStatuses = Dictionary(uniqueKeysWithValues: entries.map { ($0.id, $0.status) })
+        watchlist = entries
+        listProfileID = profile.id
+        if sameProfile { announceTrophies(after: previous, in: entries) }
+    }
+    func entry(for anime: Anime) -> WatchlistEntry? { entryIndex[anime.id] }
+    /// A series finished just now by watching it earns a trophy banner. Series that only turn
+    /// out to be finished because a catalog arrived (app start, refresh) stay quiet.
+    private func announceTrophies(after previous: [String: WatchStatus], in entries: [WatchlistEntry]) {
+        for entry in entries where entry.status == .completed && !entry.manual {
+            guard let before = previous[entry.id], before != .completed,
+                  let latest = entry.latest, latest.completed, Date().timeIntervalSince(latest.updatedAt) < 600 else { continue }
+            TrophyCenter.shared.unlock(entry)
+        }
     }
     /// Applies and saves a change; false when nothing was saved (the error is shown already).
     @discardableResult private func change(_ body: (inout LibrarySnapshot) throws -> Void) -> Bool {

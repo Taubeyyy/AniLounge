@@ -680,6 +680,15 @@ final class PlayerSurfaceView: UIView {
         let generic = episode.title == "Folge \(episode.number)" || episode.title.isEmpty
         return generic ? (episodeExtras[episode.number]?.title ?? episode.title) : episode.title
     }
+    /// Whether an episode has a real name beyond its number.
+    func hasOwnTitle(_ episode: Episode) -> Bool {
+        let title = displayTitle(of: episode)
+        return !title.isEmpty && title != "Folge \(episode.number)"
+    }
+    /// "Folge 5 · Der Sturm", or just "Folge 5" without a real name.
+    func line(for episode: Episode) -> String {
+        hasOwnTitle(episode) ? "Folge \(episode.number) · \(displayTitle(of: episode))" : "Folge \(episode.number)"
+    }
     func isSeen(_ episode: Episode) -> Bool { store.progress(for: episode, profileID: request.profileID)?.isFinished == true }
     func progress(of episode: Episode) -> EpisodeProgress? { store.progress(for: episode, profileID: request.profileID) }
     func skip(_ seconds: Double) {
@@ -878,6 +887,8 @@ struct PlaybackView: View {
         // the first swipe from the bottom edge only brings it back instead of leaving the player.
         .persistentSystemOverlays(.hidden)
         .defersSystemGestures(on: .bottom)
+        // Finishing the last episode unlocks the series' trophy right here.
+        .overlay(alignment: .top) { TrophyBannerHost() }
         .tint(Theme.accent).preferredColorScheme(.dark)
     }
     private func close() { model.finish(); dismiss() }
@@ -930,7 +941,7 @@ struct PlaybackView: View {
                 if theater {
                     VStack(spacing: 4) {
                         Text(model.request.anime.title.uppercased()).font(.caption.bold()).tracking(1.4).foregroundColor(Theme.accentSoft)
-                        Text("Folge \(model.request.episode.number) · \(model.request.episode.title)").font(.title3.bold()).lineLimit(1)
+                        Text(model.line(for: model.request.episode)).font(.title3.bold()).lineLimit(1)
                     }.padding(.bottom, 6)
                 }
                 LoadingPulse()
@@ -1189,7 +1200,7 @@ struct PlayerControls: View {
                     tapZone(forward: true)
                 }
                 if visible { chrome.transition(.opacity.combined(with: .scale(scale: 1.02))) }
-                SkipOverlay(model: model, clock: clock, bottom: visible ? (theater ? 128 : 58) : (theater ? 30 : 10), controlsVisible: visible)
+                SkipOverlay(model: model, clock: clock, bottom: visible ? (theater ? 128 : 58) : (theater ? 30 : 10), controlsVisible: visible, theater: theater)
                 if let from = model.resumedFrom { resumePill(from) }
             }
             if !visible && model.isBuffering { ProgressView().controlSize(.large).tint(.white).allowsHitTesting(false) }
@@ -1351,7 +1362,7 @@ struct PlayerControls: View {
                             .accessibilityLabel("Player schließen")
                         VStack(alignment: .leading, spacing: 2) {
                             Text(model.request.anime.title).font(.headline).lineLimit(1)
-                            Text("Folge \(model.request.episode.number) · \(model.request.episode.title)").font(.caption).foregroundColor(.white.opacity(0.75)).lineLimit(1)
+                            Text(model.line(for: model.request.episode)).font(.caption).foregroundColor(.white.opacity(0.75)).lineLimit(1)
                         }
                     }
                     Spacer(minLength: 0)
@@ -1502,6 +1513,7 @@ private struct SkipOverlay: View {
     @ObservedObject var clock: PlayheadClock
     let bottom: CGFloat
     let controlsVisible: Bool
+    var theater = true
     /// Sections whose prominent moment has passed.
     @State private var expired: Set<String> = []
     @State private var fallbackUsed = false
@@ -1554,22 +1566,22 @@ private struct SkipOverlay: View {
                 EmptyView()
             case .fallback:
                 Button { fallbackUsed = true; model.skip(85) } label: { Label("Intro überspringen", systemImage: "forward.fill") }
-                    .buttonStyle(OverlayButtonStyle())
+                    .buttonStyle(OverlayButtonStyle(compact: !theater))
                     .accessibilityHint("Springt 85 Sekunden vor")
             case .recap(let end):
                 Button { expired.insert("recap"); model.seek(to: end) } label: { Label("Rückblick überspringen", systemImage: "forward.fill") }
-                    .buttonStyle(OverlayButtonStyle())
+                    .buttonStyle(OverlayButtonStyle(compact: !theater))
             case .opening(let end):
                 Button { expired.insert("opening"); model.seek(to: end) } label: { Label("Opening überspringen", systemImage: "forward.fill") }
-                    .buttonStyle(OverlayButtonStyle())
+                    .buttonStyle(OverlayButtonStyle(compact: !theater))
             case .ending(let end):
                 if let next = model.nextEpisode {
                     Button { model.playNext() } label: { Label("Nächste Folge", systemImage: "forward.end.fill") }
-                        .buttonStyle(OverlayButtonStyle(prominent: true))
+                        .buttonStyle(OverlayButtonStyle(prominent: true, compact: !theater))
                         .accessibilityLabel("Nächste Folge, Folge \(next.number)")
                 } else {
                     Button { model.seek(to: end) } label: { Label("Abspann überspringen", systemImage: "forward.fill") }
-                        .buttonStyle(OverlayButtonStyle())
+                        .buttonStyle(OverlayButtonStyle(compact: !theater))
                 }
             case .countdown(let seconds):
                 if let next = model.nextEpisode {
@@ -1583,12 +1595,12 @@ private struct SkipOverlay: View {
                             }.frame(width: 24, height: 24)
                             Text("Folge \(next.number) in \(seconds) s").monospacedDigit()
                         }
-                    }.buttonStyle(OverlayButtonStyle(prominent: true))
-                    Button { model.cancelCountdown() } label: { Image(systemName: "xmark") }.buttonStyle(OverlayButtonStyle()).accessibilityLabel("Autoplay abbrechen")
+                    }.buttonStyle(OverlayButtonStyle(prominent: true, compact: !theater))
+                    Button { model.cancelCountdown() } label: { Image(systemName: "xmark") }.buttonStyle(OverlayButtonStyle(compact: !theater)).accessibilityLabel("Autoplay abbrechen")
                 }
             }
         }
-        .padding(.trailing, 16).padding(.bottom, bottom)
+        .padding(.trailing, theater ? 56 : 12).padding(.bottom, bottom)
         .frame(maxHeight: .infinity, alignment: .bottom)
         .animation(.easeInOut(duration: 0.25), value: shown)
         .onAppear { expireLater(kind.key) }
@@ -1607,9 +1619,11 @@ private struct SkipOverlay: View {
 }
 private struct OverlayButtonStyle: ButtonStyle {
     var prominent = false
+    /// Upright the video is small: a smaller button keeps the centre controls free.
+    var compact = false
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.font(.subheadline.bold()).foregroundColor(prominent ? .black : .white)
-            .padding(.horizontal, 16).padding(.vertical, 11)
+        configuration.label.font(compact ? .footnote.bold() : .subheadline.bold()).foregroundColor(prominent ? .black : .white)
+            .padding(.horizontal, compact ? 12 : 16).padding(.vertical, compact ? 8 : 11)
             .background(prominent ? AnyShapeStyle(Color.white) : AnyShapeStyle(.ultraThinMaterial))
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(prominent ? 0 : 0.25)))
@@ -1788,6 +1802,7 @@ struct EpisodeStrip: View {
                             ForEach(episodes) { episode in card(episode).id(episode.id) }
                         }.padding(.horizontal, inset)
                     }
+                    .fixedSize(horizontal: false, vertical: true)
                     .onAppear { reader.scrollTo(model.request.episode.id, anchor: .center) }
                 }
             }
@@ -1815,7 +1830,10 @@ struct EpisodeStrip: View {
             VStack(alignment: .leading, spacing: 6) {
                 ZStack {
                     if let still = model.episodeExtras[episode.number]?.image { Artwork(url: still) }
-                    else { Theme.panelHigh; Text(episode.number).font(.title2.weight(.heavy)).foregroundColor(.white.opacity(0.35)) }
+                    else {
+                        Theme.panelHigh
+                        if !current { Text(episode.number).font(.title2.weight(.heavy)).foregroundColor(.white.opacity(0.35)) }
+                    }
                     if current {
                         Color.black.opacity(0.5)
                         Label("Läuft gerade", systemImage: "waveform").font(.caption.weight(.bold)).foregroundColor(.white)
@@ -1833,7 +1851,9 @@ struct EpisodeStrip: View {
                     }
                 }
                 Text("Folge \(episode.number)").font(.caption.weight(.bold)).foregroundColor(current ? Theme.accentSoft : Theme.muted)
-                Text(model.displayTitle(of: episode)).font(.footnote.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                if model.hasOwnTitle(episode) {
+                    Text(model.displayTitle(of: episode)).font(.footnote.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                }
             }.frame(width: 210, alignment: .leading)
         }
         .buttonStyle(LoungePressStyle()).foregroundColor(.white).disabled(current)

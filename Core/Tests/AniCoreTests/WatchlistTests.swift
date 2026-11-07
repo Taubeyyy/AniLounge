@@ -47,11 +47,13 @@ final class WatchlistTests: XCTestCase {
         profile.setStatus(.planned, for: anime)
         try profile.saveProgress(episode(), anime: anime, seconds: 40, duration: 1200, completed: false)
         XCTAssertEqual(profile.status(for: anime), .watching)
-        for status in [WatchStatus.paused, .completed] {
-            profile.setStatus(status, for: anime)
-            try profile.saveProgress(episode(), anime: anime, seconds: 50, duration: 1200, completed: false)
-            XCTAssertEqual(profile.status(for: anime), status)
-        }
+        profile.setStatus(.paused, for: anime)
+        XCTAssertEqual(profile.status(for: anime), .paused)
+        try profile.saveProgress(episode(), anime: anime, seconds: 50, duration: 1200, completed: false)
+        XCTAssertEqual(profile.status(for: anime), .watching, "Watching again ends a pause")
+        profile.setStatus(.completed, for: anime)
+        try profile.saveProgress(episode(), anime: anime, seconds: 60, duration: 1200, completed: false)
+        XCTAssertEqual(profile.status(for: anime), .completed, "A rewatch keeps the series finished")
         profile.setStatus(nil, for: anime)
         XCTAssertEqual(profile.status(for: anime), .watching)
     }

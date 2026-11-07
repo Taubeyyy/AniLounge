@@ -54,6 +54,51 @@ public enum WatchStatus: String, Codable, CaseIterable, Sendable {
         }
     }
 }
+/// Trophies for finished series, by length: one cour is bronze, two are silver, longer runs
+/// gold, a hundred episodes and more platinum.
+public enum TrophyTier: Int, CaseIterable, Comparable, Sendable {
+    case bronze, silver, gold, platinum
+    public init(episodes: Int) {
+        switch episodes {
+        case ..<13: self = .bronze
+        case ..<27: self = .silver
+        case ..<100: self = .gold
+        default: self = .platinum
+        }
+    }
+    public var label: String {
+        switch self {
+        case .bronze: return "Bronze"
+        case .silver: return "Silber"
+        case .gold: return "Gold"
+        case .platinum: return "Platin"
+        }
+    }
+    public static func < (lhs: TrophyTier, rhs: TrophyTier) -> Bool { lhs.rawValue < rhs.rawValue }
+}
+/// One series on the watchlist with everything its card shows.
+public struct WatchlistEntry: Identifiable, Equatable, Sendable {
+    public var id: String { anime.id }
+    public let anime: Anime
+    public let status: WatchStatus
+    /// Chosen in the menu rather than derived from playback.
+    public let manual: Bool
+    /// The newest playback position in this series.
+    public let latest: EpisodeProgress?
+    /// Episodes of this series marked as seen.
+    public let seenEpisodes: Int
+    /// Episodes of its regular seasons, once the catalog knows every season.
+    public let totalEpisodes: Int?
+    public init(anime: Anime, status: WatchStatus, manual: Bool, latest: EpisodeProgress?, seenEpisodes: Int, totalEpisodes: Int?) {
+        self.anime = anime; self.status = status; self.manual = manual
+        self.latest = latest; self.seenEpisodes = seenEpisodes; self.totalEpisodes = totalEpisodes
+    }
+    public var lastActivity: Date? { latest?.updatedAt }
+    /// The length that decides the trophy: the whole series when known, else what was seen.
+    public var trophyEpisodes: Int? { totalEpisodes ?? (seenEpisodes > 0 ? seenEpisodes : nil) }
+    /// Only finished series have one; nil while their length is unknown.
+    public var trophy: TrophyTier? { status == .completed ? trophyEpisodes.map(TrophyTier.init(episodes:)) : nil }
+}
 public struct ProfileLibrary: Codable, Sendable {
     public var profile: UserProfile
     public var favorites: [Anime] = []
@@ -90,23 +135,51 @@ public struct ProfileLibrary: Codable, Sendable {
         }.map(\.anime)
         return (favorites + started).filter { !hiddenWatchlist.contains($0.id) && seen.insert($0.id).inserted }
     }
+    /// A started series without a new episode for this long counts as paused.
+    public static let pauseAfter: TimeInterval = 14 * 86_400
     /// Compute once per library/catalog change, rather than scanning progress for each drawn card.
-    public func listStatuses(catalogs: [String: SeriesCatalog] = [:]) -> [String: WatchStatus] {
-        let grouped = Dictionary(grouping: progress.values.filter { $0.seconds > 0 || $0.completed }, by: { $0.anime.id })
-        return Dictionary(uniqueKeysWithValues: watchlistItems.map { anime -> (String, WatchStatus) in
+    public func listStatuses(catalogs: [String: SeriesCatalog] = [:], now: Date = Date()) -> [String: WatchStatus] {
+        Dictionary(uniqueKeysWithValues: watchlistEntries(catalogs: catalogs, now: now).map { ($0.id, $0.status) })
+    }
+    /// Every list entry with its status. Automatic statuses: never played is planned, every
+    /// episode of the known catalog seen is completed, no new episode for two weeks is paused,
+    /// anything else is watching. A status set by hand always wins.
+    public func watchlistEntries(catalogs: [String: SeriesCatalog] = [:], now: Date = Date()) -> [WatchlistEntry] {
+        let started = progress.values.filter { $0.seconds > 0 || $0.completed }
+        let grouped = Dictionary(grouping: started, by: { $0.anime.id })
+        let finished = watched.union(started.filter(\.completed).map(\.id))
+        let seenBySeries = Dictionary(grouping: finished, by: Self.seriesPath(ofEpisode:)).mapValues(\.count)
+        return watchlistItems.map { anime in
             let entries = grouped[anime.id] ?? []
-            if let manual = watchStatus[anime.id] { return (anime.id, manual) }
-            guard !entries.isEmpty else { return (anime.id, .planned) }
-            guard let catalog = catalogs[anime.id], catalog.refreshedAt != nil, !catalog.seasons.isEmpty else { return (anime.id, .watching) }
-            let television = catalog.seasons.filter { $0.path.contains("/staffel-") }
-            let seasons = television.isEmpty ? catalog.seasons : television
-            let finished = watched.union(entries.filter(\.completed).map(\.id))
-            let allSeen = seasons.allSatisfy { season in
-                guard let episodes = catalog.episodesBySeason[season.path], !episodes.isEmpty else { return false }
-                return episodes.allSatisfy { finished.contains($0.id) }
+            let latest = entries.max { $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt < $1.updatedAt }
+            var total: Int?
+            var allSeen = false
+            if let catalog = catalogs[anime.id], catalog.refreshedAt != nil, !catalog.seasons.isEmpty {
+                let television = catalog.seasons.filter { $0.path.contains("/staffel-") }
+                let seasons = television.isEmpty ? catalog.seasons : television
+                let lists = seasons.map { catalog.episodesBySeason[$0.path] ?? [] }
+                // A season that was never loaded leaves the series open: no completion guess.
+                if lists.allSatisfy({ !$0.isEmpty }) {
+                    total = lists.reduce(0) { $0 + $1.count }
+                    allSeen = lists.allSatisfy { list in list.allSatisfy { finished.contains($0.id) } }
+                }
             }
-            return (anime.id, allSeen ? .completed : .watching)
-        })
+            let status: WatchStatus
+            if let manual = watchStatus[anime.id] { status = manual }
+            else if entries.isEmpty { status = .planned }
+            else if allSeen { status = .completed }
+            else if let last = latest?.updatedAt, now.timeIntervalSince(last) > Self.pauseAfter { status = .paused }
+            else { status = .watching }
+            return WatchlistEntry(anime: anime, status: status, manual: watchStatus[anime.id] != nil, latest: latest,
+                                  seenEpisodes: seenBySeries[anime.path] ?? 0, totalEpisodes: total)
+        }
+    }
+    /// "/anime/stream/name/staffel-1/episode-3" and ".../filme/film-1" belong to "/anime/stream/name".
+    static func seriesPath(ofEpisode id: String) -> String {
+        for marker in ["/staffel-", "/filme"] {
+            if let range = id.range(of: marker) { return String(id[..<range.lowerBound]) }
+        }
+        return String(id[..<(id.lastIndex(of: "/") ?? id.endIndex)])
     }
     /// nil returns to the automatic status.
     public mutating func setStatus(_ status: WatchStatus?, for anime: Anime) {
@@ -153,7 +226,8 @@ public struct ProfileLibrary: Codable, Sendable {
         guard seconds.isFinite, seconds >= 0, seconds <= 86400,
               duration == nil || (duration!.isFinite && duration! > 0 && duration! <= 86400) else { throw LibraryError.invalidProgress }
         let position = min(seconds, duration ?? seconds)
-        if (position > 0 || completed), watchStatus[anime.id] == .planned { watchStatus[anime.id] = nil }
+        // Playing again makes a planned or paused series current; a finished one stays finished.
+        if position > 0 || completed, let manual = watchStatus[anime.id], manual == .planned || manual == .paused { watchStatus[anime.id] = nil }
         progress[episode.id] = EpisodeProgress(anime: anime, episode: episode, seconds: position, duration: duration, completed: completed, updatedAt: date)
         if completed { watched.insert(episode.id) } else { watched.remove(episode.id) }
         opened(episode, anime: anime, date: date)
